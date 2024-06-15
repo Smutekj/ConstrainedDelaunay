@@ -81,6 +81,8 @@ struct Player
         }
     }
 
+    float radius = 0.99f;
+
     bool moving_up = false;
     bool moving_down = false;
     bool moving_left = false;
@@ -107,6 +109,8 @@ public:
     Application(cdt::Vector2i box_size)
         : m_window({800, 600}, "Pathfinding"), m_map(box_size, box_size), m_cdt(box_size), m_pf(m_cdt)
     {
+
+        m_font.loadFromFile("../Resources/arial.ttf");
 
         m_window.setFramerateLimit(60.f);
         float aspect = 6. / 8.;
@@ -145,7 +149,7 @@ public:
         m_window.clear(sf::Color::White);
         drawUI();
         drawWalls();
-        
+
         if (m_draw_path)
         {
             drawPath();
@@ -158,13 +162,17 @@ public:
         {
             drawTriangulation();
         }
+        if (m_draw_tri_inds)
+        {
+            drawTriInds();
+        }
 
         //! draw Player
-        sf::RectangleShape player_rect;
-        player_rect.setPosition(m_player.pos.x, m_player.pos.y);
-        player_rect.setSize({1.f, 1.f});
-        player_rect.setFillColor(sf::Color::Red);
-        m_window.draw(player_rect);
+        sf::CircleShape player_c;
+        player_c.setRadius(m_player.radius);
+        player_c.setPosition(m_player.pos.x - m_player.radius, m_player.pos.y - m_player.radius);
+        player_c.setFillColor(sf::Color::Red);
+        m_window.draw(player_c);
 
         m_window.display();
     }
@@ -203,7 +211,7 @@ public:
         }
         else if (event.type == sf::Event::MouseButtonReleased && event.mouseButton.button == sf::Mouse::Right)
         {
-            m_path = m_pf.doPathFinding({m_player.pos.x, m_player.pos.y}, mouse_pos, 1.f);
+            m_path = m_pf.doPathFinding({m_player.pos.x, m_player.pos.y}, mouse_pos, m_player.radius);
         }
 
         if (event.type == sf::Event::MouseWheelMoved)
@@ -231,23 +239,62 @@ public:
 private:
     void drawTriangulation()
     {
+        int tri_ind = 0;
         for (auto &tri : m_cdt.m_triangles)
         {
             sf::Vector2f v1(tri.verts[0].x, tri.verts[0].y);
             sf::Vector2f v2(tri.verts[1].x, tri.verts[1].y);
             sf::Vector2f v3(tri.verts[2].x, tri.verts[2].y);
-            if (!tri.is_constrained[0])
+            // if (!tri.is_constrained[0])
             {
-                drawLine(m_window, v1, v2, sf::Color::Green);
+                sf::Color color = {0, 255, 0, 255};
+                int r = 255 * m_pf.triangle2tri_widths_[tri_ind].widths[0] / 2.f;
+                color.r = (unsigned char)(r);
+                if (r > 255)
+                {
+                    color.r = 255;
+                };
+                drawLine(m_window, v1, v2, color);
             }
-            if (!tri.is_constrained[1])
+            // if (!tri.is_constrained[1])
             {
-                drawLine(m_window, v2, v3, sf::Color::Green);
+                sf::Color color = {0, 255, 0, 255};
+                int r = 255 * m_pf.triangle2tri_widths_[tri_ind].widths[1] / 2.f;
+                color.r = (unsigned char)(r);
+                if (r > 255)
+                {
+                    color.r = 255;
+                };
+                drawLine(m_window, v2, v3, color);
             }
-            if (!tri.is_constrained[2])
+            // if (!tri.is_constrained[2])
             {
-                drawLine(m_window, v3, v1, sf::Color::Green);
+                sf::Color color = {0, 255, 0, 255};
+                int r = 255 * m_pf.triangle2tri_widths_[tri_ind].widths[1] / 2.f;
+                color.r = (unsigned char)(r);
+                if (r > 255)
+                {
+                    color.r = 255;
+                };
+                drawLine(m_window, v3, v1, color);
             }
+            tri_ind++;
+        }
+    }
+
+    void drawTriInds()
+    {
+        sf::Text num;
+        num.setFont(m_font);
+        num.setFillColor(sf::Color::Blue);
+        for (int ind = 0; ind < m_cdt.m_triangles.size(); ++ind)
+        {
+            auto &tri = m_cdt.m_triangles.at(ind);
+            num.setString(std::to_string(ind));
+            auto center = asFloat(tri.verts[0] + tri.verts[1] + tri.verts[2]) / 3.f;
+            num.setPosition(center.x, center.y); // - sf::Vector2f(num.getGlobalBounds().width, num.getLocalBounds().height)
+            num.setScale(0.03f, 0.03f);
+            m_window.draw(num);
         }
     }
 
@@ -314,6 +361,11 @@ private:
         {
             m_draw_path_funnel = !m_draw_path_funnel;
         }
+        if (ImGui::Button("Draw Indices"))
+        {
+            m_draw_tri_inds = !m_draw_tri_inds;
+        }
+        ImGui::SliderFloat("Player Radius", &m_player.radius, 0, 10);
         ImGui::End();
 
         ImGui::SFML::Render(m_window);
@@ -329,6 +381,9 @@ private:
     bool m_draw_path = true;
     bool m_draw_path_funnel = true;
     bool m_draw_triangulation = false;
+    bool m_draw_tri_inds = false;
+
+    sf::Font m_font;
 
     PathFinder::PathData m_path;
 

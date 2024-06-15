@@ -109,15 +109,16 @@ private:
     Edgef pushAwayFromCorner(cdt::Vector2f &r_to_push, const cdt::Vector2f &r_prev, const cdt::Vector2f &r_next,
                              const float distance, bool left) const;
 
+public:
+    std::vector<TriangleWidth> triangle2tri_widths_;
 private:
     std::vector<TriInd> m_back_pointers;
     std::vector<float> m_g_values;
     std::unique_ptr<ReducedTriangulationGraph> m_rtg;
 
-    Triangulation<Triangle> *cdt_; //! underlying triangulation
+    Triangulation<Triangle> * m_cdt; //! underlying triangulation
 
     std::vector<int> component2building_ind_; //! this should probably not be here...
 
     std::vector<TriInd> tri_ind2component_; //! This will be used for identifying buldings
-    std::vector<TriangleWidth> triangle2tri_widths_;
 };

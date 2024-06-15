@@ -15,6 +15,8 @@ void drawLine(sf::RenderWindow &window, sf::Vector2f from, sf::Vector2f to, sf::
 void combineTextures(const sf::RenderTexture &source, sf::RenderTarget &destination,
                      sf::Shader &shader, sf::BlendMode blend_mode)
 {
+    auto old_view = destination.getView();
+
     sf::VertexArray texture_rect;
     texture_rect.resize(4);
     texture_rect.setPrimitiveType(sf::Quads);
@@ -28,8 +30,13 @@ void combineTextures(const sf::RenderTexture &source, sf::RenderTarget &destinat
     sf::RenderStates states;
     states.blendMode = blend_mode;
     states.shader = &shader;
-    destination.setView(destination.getDefaultView());
+
+    sf::View view;
+    view.setCenter(rect_size / 2.f);
+    view.setSize(rect_size);
+    destination.setView(view);
     destination.draw(texture_rect, states);
+    destination.setView(old_view);
 }
 
 struct Application
@@ -50,9 +57,6 @@ struct Application
     void smoothLights(const sf::RenderTexture &light_texture, sf::RenderTarget &scene)
     {
 
-        auto old_view = scene.getView();
-        scene.setView(scene.getDefaultView());
-
         combineTextures(light_texture, m_texture_pass[0], m_light_smoother, sf::BlendNone);
 
         for (int i = 0; i < 5; ++i)
@@ -64,6 +68,8 @@ struct Application
             combineTextures(m_texture_pass[1], m_texture_pass[0], m_light_smoother, sf::BlendNone);
         }
 
+        auto old_view = scene.getView();
+        scene.setView(scene.getDefaultView());
         combineTextures(m_texture_pass[0], scene, m_full_pass, sf::BlendMultiply);
         scene.setView(old_view);
     }
@@ -78,7 +84,6 @@ private:
 
 struct Player
 {
-    cdt::Vector2f pos;
 
     void update()
     {
@@ -126,6 +131,9 @@ struct Player
         }
     }
 
+    cdt::Vector2f pos;
+    float vision_distance = 50.f;
+
     bool moving_up = false;
     bool moving_down = false;
     bool moving_left = false;
@@ -135,8 +143,10 @@ struct Player
 int main(int argc, char **argv)
 {
 
+    using namespace cdt;
+
     sf::Vector2i box_size = {100, 100};
-    cdt::Triangulation cdt({box_size.x, box_size.y});
+    cdt::Triangulation<cdt::Triangle> cdt({box_size.x, box_size.y});
     VisionField m_vision(cdt);
 
     sf::RenderWindow window({800, 600}, "Demo");
@@ -229,7 +239,8 @@ int main(int argc, char **argv)
 
         ImGui::SFML::Update(window, m_clock.restart());
         ImGui::Begin("Control Panel"); // Create a window called "Hello, world!" and append into it.
-
+        ImGui::SliderFloat("vision distance", &player.vision_distance, 0, 100);
+        ImGui::ColorPicker3("vision color", m_light_color);
         ImGui::End();
 
         ImGui::SFML::Render(window);
@@ -252,14 +263,15 @@ int main(int argc, char **argv)
 
         m_vision.contrstuctField(player.pos, {0, 0});
         auto vision_poly = m_vision.getDrawVertices();
+
         sf::Color base_color = {0, 0, 0, 255};
-        m_light_texture.setView(window.getView());
         m_light_texture.clear(base_color);
+
+        m_light_texture.setView(window.getView());
         m_light_texture.draw(vision_poly);
         m_light_texture.display();
 
-        m_light_cut.setView(window.getView());
-        m_light_cut.clear({0, 0, 0, 255});
+        m_light_cut.clear(base_color);
 
         sf::VertexArray circle_verts;
         circle_verts.resize(50 + 2);
@@ -269,22 +281,22 @@ int main(int argc, char **argv)
         for (auto i = 0; i < 50; ++i)
         {
             float angle = i / 50. * 360.f;
-            cdt::Vector2f r = player.pos + m_vision_distance * angle2dir(angle);
+            cdt::Vector2f r = player.pos + player.vision_distance * angle2dir(angle);
             circle_verts[i + 1].position = {r.x, r.y};
             circle_verts[i + 1].color = base_color;
-            circle_verts[i + 1].color.a = 0;
+            circle_verts[i + 1].color.a = 30;
         }
         circle_verts[50 + 1] = circle_verts[1];
 
-        m_light_cut.setView(window.getView());
         sf::RenderStates states;
         states.blendMode.colorSrcFactor = sf::BlendMode::SrcColor;
         states.blendMode.colorDstFactor = sf::BlendMode::DstColor;
         states.blendMode.colorEquation = sf::BlendMode::Add;
-        // m_light_cut.draw(circle_verts2, states);
+
+        m_light_cut.setView(window.getView());
         m_light_cut.draw(circle_verts, states);
         m_light_cut.display();
-        //
+
         combineTextures(m_light_cut, m_light_texture, full_pass, sf::BlendMultiply);
         m_light_texture.display();
 

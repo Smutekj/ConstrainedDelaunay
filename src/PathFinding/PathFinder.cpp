@@ -6,9 +6,8 @@
 #include <fstream>
 #include <iostream>
 
-
-PathFinder::PathFinder(Triangulation<Triangle>& cdt)
-    : cdt_(&cdt)
+PathFinder::PathFinder(Triangulation<Triangle> &cdt)
+    : m_cdt(&cdt)
 {
     m_rtg = std::make_unique<ReducedTriangulationGraph>();
 }
@@ -18,19 +17,18 @@ PathFinder::PathFinder(Triangulation<Triangle>& cdt)
 void PathFinder::update()
 {
 
-    const auto n_triangles = cdt_->m_triangles.size();
+    const auto n_triangles = m_cdt->m_triangles.size();
 
     triangle2tri_widths_.resize(n_triangles);
     for (int tri_ind = 0; tri_ind < n_triangles; ++tri_ind)
     {
-        triangle2tri_widths_[tri_ind] = TriangleWidth(cdt_->m_triangles[tri_ind], *cdt_);
+        triangle2tri_widths_[tri_ind] = TriangleWidth(m_cdt->m_triangles[tri_ind], *m_cdt);
     }
     m_g_values.resize(n_triangles);
     m_back_pointers.resize(n_triangles);
 
-    cdt_->updateCellGrid();
+    m_cdt->updateCellGrid();
 }
-
 
 void dumpFunnelToFile(const Funnel &funnel, float radius, std::string filename)
 {
@@ -82,9 +80,9 @@ PathFinder::PathData PathFinder::doPathFinding(const cdt::Vector2f r_start, cons
     std::reverse(funnel.begin(), funnel.end());
     funnel.push_back({r_end, r_end});
 
-    return pathFromFunnel(r_start, r_end, radius, funnel);;
+    return pathFromFunnel(r_start, r_end, radius, funnel);
+    ;
 }
-
 
 //! \brief finds sequence of triangles such that the path going through centers of the triangles is the shortest
 //! \param r_start starting position
@@ -95,10 +93,10 @@ PathFinder::PathData PathFinder::doPathFinding(const cdt::Vector2f r_start, cons
 void PathFinder::findSubOptimalPathCenters(cdt::Vector2f r_start, cdt::Vector2f r_end, float radius, Funnel &funnel)
 {
 
-    const auto &triangles = cdt_->m_triangles;
-    const auto &vertices = cdt_->m_vertices;
-    const auto start = cdt_->findTriangle(r_start, false);
-    const auto end = cdt_->findTriangle(r_end, false);
+    const auto &triangles = m_cdt->m_triangles;
+    const auto &vertices = m_cdt->m_vertices;
+    const auto start = m_cdt->findTriangle(r_start, false);
+    const auto end = m_cdt->findTriangle(r_end, false);
 
     if (start == end or start == -1 or end == -1)
     {
@@ -108,9 +106,7 @@ void PathFinder::findSubOptimalPathCenters(cdt::Vector2f r_start, cdt::Vector2f 
     std::vector<AstarDataPQ> to_visit;
     for (int i = 0; i < triangles.size(); ++i)
     {
-        //        to_visit.push_back(i);
         m_g_values[i] = MAXFLOAT;
-        // m_h_values[i] = dist(cdt_->calcTriangleCenter(triangles[i]), r_end);
         m_back_pointers[i] = -1;
     }
 
@@ -134,7 +130,7 @@ void PathFinder::findSubOptimalPathCenters(cdt::Vector2f r_start, cdt::Vector2f 
 
         for (const auto neighbour : current_tri.neighbours)
         {
-        
+
             auto ind_in_tri = indInTriOf(current_tri, neighbour);
             const auto &neighbour_tri = triangles[neighbour];
             if (current_tri.is_constrained[ind_in_tri] || ind_in_tri == 3)
@@ -143,20 +139,23 @@ void PathFinder::findSubOptimalPathCenters(cdt::Vector2f r_start, cdt::Vector2f 
             }
 
             float width = MAXFLOAT;
-            // width = triangle2tri_widths_[current_tri_ind].widths[ind_in_tri];
+            width = triangle2tri_widths_[current_tri_ind].widths[ind_in_tri];
 
-            const auto t1 = asFloat(current_tri.verts[0] + current_tri.verts[1] + current_tri.verts[2])/3.f;
-            const auto t2 = asFloat(neighbour_tri.verts[0] + neighbour_tri.verts[1] + neighbour_tri.verts[2])/3.f;
+            const auto t1 = asFloat(current_tri.verts[0] + current_tri.verts[1] + current_tri.verts[2]) / 3.f;
+            const auto t2 = asFloat(neighbour_tri.verts[0] + neighbour_tri.verts[1] + neighbour_tri.verts[2]) / 3.f;
             const auto distance = dist(t1, t2);
             const auto distance_to_end = dist(r_end, t1);
             const auto h_value = dist(r_end, t2);
             const auto new_g_value = m_g_values.at(current_tri_ind) + distance;
             if (m_g_values.at(neighbour) > new_g_value && width > 2 * radius)
             {
-
                 m_g_values.at(neighbour) = m_g_values.at(current_tri_ind) + distance;
                 m_back_pointers.at(neighbour) = current_tri_ind;
                 to_visit_pque.push({neighbour, h_value + new_g_value});
+            }
+            else if (width < 2 * radius)
+            {
+                std::cout << "wtf";
             }
         }
     }
@@ -166,14 +165,14 @@ void PathFinder::findSubOptimalPathCenters(cdt::Vector2f r_start, cdt::Vector2f 
     auto current_tri_ind = end;
     while (current_tri_ind != start)
     {
-        if (current_tri_ind == -1)
+        if (m_back_pointers[current_tri_ind] == -1)
         {
             return;
         }
         const auto &tri = triangles[current_tri_ind];
 
         auto ind_in_tri = indInTriOf(tri, m_back_pointers[current_tri_ind]);
-        if(ind_in_tri == 3)
+        if (ind_in_tri == 3)
         {
             return;
         }
@@ -198,8 +197,8 @@ std::pair<TriInd, int> PathFinder::closestPointOnNavigableComponent(const cdt::V
                                                                     const int end_component,
                                                                     const int navigable_component) const
 {
-    const auto &triangles = cdt_->m_triangles;
-    const auto &vertices = cdt_->m_vertices;
+    const auto &triangles = m_cdt->m_triangles;
+    const auto &vertices = m_cdt->m_vertices;
     auto current_tri_ind = start_tri_ind;
     std::queue<TriInd> to_visit({current_tri_ind});
 
@@ -233,45 +232,53 @@ std::pair<TriInd, int> PathFinder::closestPointOnNavigableComponent(const cdt::V
     return {current_tri_ind, to_end_component};
 }
 
+float calcWidth(cdt::Vector2f pos, Edgef segment)
+{
+    auto d1 = dist(pos, segment.from);
+    auto d2 = dist(pos, segment.to());
+
+    auto proj_on_segment = dot(pos - segment.from, segment.t);
+    if (proj_on_segment < 0) //! point lies in front of segment.from
+    {
+        return dist(pos, segment.from);
+        ;
+    }
+    if (proj_on_segment > segment.l) //! point lies behind segment.to
+    {
+        return dist(pos, segment.to());
+        ;
+    }
+
+    //! point lies "in between" segment.from and segment.to
+    cdt::Vector2f n = {segment.t.y, -segment.t.x};
+    //! distance of orthogonal projection on segment
+    auto norm_dist = std::abs(dot(pos - segment.from, n));
+    return norm_dist;
+}
+
 PathFinder::TriangleWidth::TriangleWidth(Triangle &tri, const Triangulation<Triangle> &cdt)
 {
 
     int n_constraints = 0;
-    int free_vertex_ind_in_tri = 0;
+    int free_ind = 0;
 
     for (int i = 0; i < 3; ++i)
     {
-        if (tri.is_constrained[i])
+        widths[i] = dist(tri.verts[i], tri.verts[next(i)]); //;
+        n_constraints += tri.is_constrained[i];
+
+        if (!tri.is_constrained[i] && !tri.is_constrained[prev(i)])
         {
-            n_constraints++;
-            free_vertex_ind_in_tri = (i + 2) % 3;
-            widths[i] = MAXFLOAT;
+            free_ind = i;
         }
     }
+    //! if there are two free edges, the width is the orthogonal projection to the constrained edge
     if (n_constraints == 1)
-    { //! only one vertex can be "circled around" so need to calc. just one width
-        const auto v_free = tri.verts[free_vertex_ind_in_tri];
-        const auto v1 = tri.verts[next(free_vertex_ind_in_tri)];
-        const auto v2 = tri.verts[prev(free_vertex_ind_in_tri)];
-
-        const auto d1 = dist(v_free, v1);
-        const auto d2 = dist(v_free, v2);
-
-        const auto v21 = static_cast<cdt::Vector2f>(v2 - v1);
-        const auto vf1 = static_cast<cdt::Vector2f>(v_free - v1);
-        const auto dv_free_to_edge = vf1 - dot(vf1, v21) / dot(v21, v21) * v21;
-        const auto d_norm = dot(dv_free_to_edge, dv_free_to_edge);
-
-        widths[free_vertex_ind_in_tri] = std::min({d1, d2, d_norm});
-    }
-    else if (n_constraints == 0)
-    { //! each vertex can be "circled around" and thus has width
-        const auto l_edge_0 = dist(tri.verts[0], tri.verts[1]);
-        const auto l_edge_1 = dist(tri.verts[1], tri.verts[2]);
-        const auto l_edge_2 = dist(tri.verts[2], tri.verts[0]);
-        widths[0] = std::min(l_edge_0, l_edge_2);
-        widths[1] = std::min(l_edge_0, l_edge_1);
-        widths[2] = std::min(l_edge_1, l_edge_2);
+    {
+        widths[free_ind] = calcWidth(tri.verts[free_ind],
+                                     {tri.verts[prev(free_ind)], tri.verts[next(free_ind)]});
+        widths[prev(free_ind)] = calcWidth(tri.verts[free_ind],
+                                     {tri.verts[prev(free_ind)], tri.verts[next(free_ind)]});
     }
 }
 
@@ -283,7 +290,7 @@ PathFinder::TriangleWidth::TriangleWidth(Triangle &tri, const Triangulation<Tria
 //! \param distance how far away the point is pushed
 //! \returns path portal coming from pushed
 Edgef PathFinder::pushAwayFromCorner(cdt::Vector2f &r_to_push, const cdt::Vector2f &r_prev, const cdt::Vector2f &r_next,
-                          const float distance, bool left) const
+                                     const float distance, bool left) const
 {
 
     const auto v0 = r_to_push;
@@ -295,26 +302,28 @@ Edgef PathFinder::pushAwayFromCorner(cdt::Vector2f &r_to_push, const cdt::Vector
     v10 /= norm(v10);
     v20 /= norm(v20);
     auto vertex_normal = v10 + v20;
-    if(left && orient(r_prev, r_to_push, r_next) < 0)
+    if (left && orient(r_prev, r_to_push, r_next) < 0)
     {
         vertex_normal *= -1.f;
     }
-    if(!left && orient(r_prev, r_to_push, r_next) > 0)
+    if (!left && orient(r_prev, r_to_push, r_next) > 0)
     {
         vertex_normal *= -1.f;
     }
-    
-    if(approx_equal_zero(vertex_normal.x) && approx_equal_zero(vertex_normal.y))
+
+    if (approx_equal_zero(vertex_normal.x) && approx_equal_zero(vertex_normal.y))
     {
-        if(left)
+        if (left)
         {
             vertex_normal = {v10.y, -v10.x};
-        }else{
+        }
+        else
+        {
             vertex_normal = {v20.y, -v20.x};
         }
     }
 
-    r_to_push += (vertex_normal) * distance / norm(vertex_normal) ;
+    r_to_push += (vertex_normal)*distance / norm(vertex_normal);
 
     assert(!std::isnan(r_to_push.x) && !std::isnan(r_to_push.y));
 
@@ -361,7 +370,7 @@ Edgef createPortal(cdt::Vector2f &r_to_push, const cdt::Vector2f &r_prev, const 
 //! \returns shortest path inside funnel and portals (line segments from path points indicating that I passed the path
 //! point)
 PathFinder::PathData PathFinder::pathFromFunnel(const cdt::Vector2f r_start, const cdt::Vector2f r_end,
-                                                       const float radius, Funnel &funnel) const
+                                                const float radius, Funnel &funnel) const
 {
 
     PathData path_and_portals;
@@ -371,8 +380,8 @@ PathFinder::PathData PathFinder::pathFromFunnel(const cdt::Vector2f r_start, con
     path_and_portals.path = {r_start};
     path_and_portals.portals = {Edgef()};
 
-    const auto &triangles = cdt_->m_triangles;
-    const auto &vertices = cdt_->m_vertices;
+    const auto &triangles = m_cdt->m_triangles;
+    const auto &vertices = m_cdt->m_vertices;
 
     cdt::Vector2f right;
     cdt::Vector2f left;
