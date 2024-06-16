@@ -103,9 +103,13 @@ namespace cdt
 
         void insertVertex(const Vertex &v, bool = false);
         void insertVertexIntoSpace(const Vertex &v, TriInd, VertInd);
+        VertexInsertionData insertVertexAndGetData(const Vertex &v, bool = false);
+        VertexInsertionData insertVertexAndGetData(int vx, int vy, bool = false);
+        
+        void insertVertices(const std::vector<Vertex>& verts);
+
         void insertConstraint(const EdgeVInd edge);
 
-        VertexInsertionData insertVertexAndGetData(const Vertex &v, bool = false);
 
         int indexOf(const Vertex &v, const Triangle &tri) const;
         int oppositeIndex(const TriInd np, const Triangle &tri);

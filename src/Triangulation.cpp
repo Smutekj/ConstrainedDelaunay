@@ -720,6 +720,47 @@ namespace cdt
     //! \param search_from_last_one should be true if last added vertex is not far from \p new_vertex
     //! \returns data relating to the actual type of insertion performed
     template <class TriangleT>
+    VertexInsertionData Triangulation<TriangleT>::insertVertexAndGetData(int vx, int vy, bool search_from_last_one)
+    {
+        return insertVertexAndGetData({vx, vy}, search_from_last_one);
+    }
+
+    template <class TriangleT>
+    void Triangulation<TriangleT>::insertVertices(const std::vector<Vertex> &verts)
+    {
+        int vert_ind = m_vertices.size();
+        std::vector<std::vector<Vertex>> m_grid2vert_inds(m_grid->getNCells());
+        
+        //! sort vertices into bins formed by grid cells
+        for (auto &v : verts)
+        {
+            m_grid2vert_inds.at(m_grid->cellIndex(v)).push_back(v);
+            vert_ind++;
+        }
+        
+        auto cells_x = m_grid->m_cell_count.x;
+        for (int iy = 0; iy < m_grid->m_cell_count.y; iy++)
+        {
+            bool odd_line = iy%2 == 1;
+            for (int ix = 0; ix < m_grid->m_cell_count.x; ix++)
+            {
+
+                int ix_walk = odd_line*(cells_x-1) + (1 - 2*odd_line) * ix; 
+                auto cell_ind = m_grid->cellIndex(ix_walk, iy);
+                for(auto& v : m_grid2vert_inds.at(cell_ind))
+                {
+                    insertVertex(v, true);
+                }
+            }
+        }
+    }
+
+    //! \brief inserts \p new_vertex into triangulation, the inserted vertex can either:
+    //! \brief already exist, or it may lie on an existing edge or it lies in free space
+    //! \param new_vertex
+    //! \param search_from_last_one should be true if last added vertex is not far from \p new_vertex
+    //! \returns data relating to the actual type of insertion performed
+    template <class TriangleT>
     VertexInsertionData Triangulation<TriangleT>::insertVertexAndGetData(const Vertex &new_vertex, bool search_from_last_one)
     {
 
@@ -1068,7 +1109,6 @@ namespace cdt
                 vi = tri_a.verts[opposite_ind_in_tri_a];
                 vj = tri_b.verts[opposite_ind_in_tri_b];
                 vi_ind = m_tri_ind2vert_inds[tri_ind_a][opposite_ind_in_tri_a];
-                
 
                 bool edge_is_not_fixed = m_fixed_edges.count(e_new) == 0;
                 //            bool edge_is_not_fixed = .count(e_new) == 0;
