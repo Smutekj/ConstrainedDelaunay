@@ -15,7 +15,8 @@ add_executable(ShadowsDemo Shadows/main.cpp core.h Shadows/VisibilityField.h Sha
 target_link_libraries(ShadowsDemo PRIVATE sfml-graphics sfml-window sfml-system ImGui-SFML::ImGui-SFML)
 
 
-add_executable(PathFindingDemo PathFinding/main.cpp core.h PathFinding/PathFinder.h PathFinding/PathFinder.cpp
+add_executable(PathFindingDemo PathFinding/main.cpp core.h PathFinding/PathFinder.h PathFinding/PathFinder.cpp 
+            PathFinding/Application.h PathFinding/Application.cpp
                 Shadows/MapGrid.h Shadows/MapGrid.cpp PathFinding/ReducedTriangulationGraph.h PathFinding/ReducedTriangulationGraph.cpp
                 Triangulation.h Triangulation.cpp Grid.h Grid.cpp)
 target_link_libraries(PathFindingDemo PRIVATE sfml-graphics sfml-window sfml-system ImGui-SFML::ImGui-SFML)

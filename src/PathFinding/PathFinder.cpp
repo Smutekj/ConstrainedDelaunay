@@ -153,10 +153,6 @@ void PathFinder::findSubOptimalPathCenters(cdt::Vector2f r_start, cdt::Vector2f 
                 m_back_pointers.at(neighbour) = current_tri_ind;
                 to_visit_pque.push({neighbour, h_value + new_g_value});
             }
-            else if (width < 2 * radius)
-            {
-                std::cout << "wtf";
-            }
         }
     }
     //! walk backwards from finish to start;
@@ -241,12 +237,10 @@ float calcWidth(cdt::Vector2f pos, Edgef segment)
     if (proj_on_segment < 0) //! point lies in front of segment.from
     {
         return dist(pos, segment.from);
-        ;
     }
     if (proj_on_segment > segment.l) //! point lies behind segment.to
     {
         return dist(pos, segment.to());
-        ;
     }
 
     //! point lies "in between" segment.from and segment.to
