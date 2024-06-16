@@ -39,49 +39,6 @@ void combineTextures(const sf::RenderTexture &source, sf::RenderTarget &destinat
     destination.setView(old_view);
 }
 
-struct Application
-{
-
-    Application()
-    {
-        m_light_cut.create(800, 600);
-        m_light_cut.setSmooth(true);
-        m_texture_pass[0].create(800, 600);
-        m_texture_pass[1].create(800, 600);
-        m_texture_pass[0].setSmooth(true);
-        m_texture_pass[1].setSmooth(true);
-        m_light_smoother.loadFromFile("../Resources/Shaders/basic.vert", "../Resources/Shaders/lightSmootherRGB.frag");
-        m_full_pass.loadFromFile("../Resources/Shaders/basic.vert", "../Resources/Shaders/fullpass.frag");
-    }
-
-    void smoothLights(const sf::RenderTexture &light_texture, sf::RenderTarget &scene)
-    {
-
-        combineTextures(light_texture, m_texture_pass[0], m_light_smoother, sf::BlendNone);
-
-        for (int i = 0; i < 5; ++i)
-        {
-            m_light_smoother.setUniform("vertical", false);
-            combineTextures(m_texture_pass[0], m_texture_pass[1], m_light_smoother, sf::BlendNone);
-
-            m_light_smoother.setUniform("vertical", true);
-            combineTextures(m_texture_pass[1], m_texture_pass[0], m_light_smoother, sf::BlendNone);
-        }
-
-        auto old_view = scene.getView();
-        scene.setView(scene.getDefaultView());
-        combineTextures(m_texture_pass[0], scene, m_full_pass, sf::BlendMultiply);
-        scene.setView(old_view);
-    }
-
-private:
-    sf::RenderTexture m_texture_pass[2];
-    sf::RenderTexture m_light_cut;
-    sf::Shader m_light_smoother;
-    sf::Shader m_light_combiner;
-    sf::Shader m_full_pass;
-};
-
 struct Player
 {
 
@@ -140,134 +97,94 @@ struct Player
     bool moving_right = false;
 };
 
-int main(int argc, char **argv)
+struct Application
 {
 
-    using namespace cdt;
+    Application(cdt::Vector2i box_size)
+        : m_window({800, 600}, "Pathfinding"), m_map(box_size, box_size), m_cdt(box_size), m_vision(m_cdt)
+    {
+        m_window.setFramerateLimit(60.f);
+        //! init gui
+        ImGui::SFML::Init(m_window);
 
-    sf::Vector2i box_size = {100, 100};
-    cdt::Triangulation<cdt::Triangle> cdt({box_size.x, box_size.y});
-    VisionField m_vision(cdt);
+        //! init player pos and view
+        m_player.pos = asFloat(box_size) / 2.f;
+        float aspect = 6. / 8.;
+        sf::View view;
+        view.setCenter(sf::Vector2f(box_size.x / 2.f, box_size.y / 2.f));
+        view.setSize(box_size.x, box_size.y * aspect);
+        m_window.setView(view);
 
-    sf::RenderWindow window({800, 600}, "Demo");
-    window.setFramerateLimit(60.f);
-    float aspect = 6. / 8.;
+        //! initialize textures and shaders
+        m_light_cut.create(800, 600);
+        m_light_cut.setSmooth(true);
+        m_texture_pass[0].create(800, 600);
+        m_texture_pass[1].create(800, 600);
+        m_texture_pass[0].setSmooth(true);
+        m_texture_pass[1].setSmooth(true);
+        m_light_texture.create(m_window.getSize().x, m_window.getSize().y);
+        m_light_texture.setSmooth(true);
 
-    MapGrid map(box_size, box_size);
-    Player player;
-    player.pos = asFloat(box_size) / 2.f;
+        m_light_smoother.loadFromFile("../Resources/Shaders/basic.vert", "../Resources/Shaders/lightSmootherRGB.frag");
+        m_full_pass.loadFromFile("../Resources/Shaders/basic.vert", "../Resources/Shaders/fullpass.frag");
+    }
 
-    Application app;
+    void run()
+    {
+        while (m_window.isOpen())
+        {
 
-    ImGui::SFML::Init(window);
-    sf::Clock m_clock;
+            m_window.clear(sf::Color::White);
 
-    sf::View view;
-    view.setCenter(static_cast<sf::Vector2f>(box_size) / 2.f);
-    view.setSize(box_size.x, box_size.y * aspect);
-    window.setView(view);
+            sf::Event event;
+            while (m_window.pollEvent(event))
+            {
+                handleEvent(event);
+            }
+            update(0.016f);
+            draw();
+        }
+    }
 
-    sf::Shader full_pass;
-    full_pass.loadFromFile("../Resources/Shaders/basic.vert", "../Resources/Shaders/fullpass.frag");
-    float m_vision_distance = 30.f;
-    float m_light_color[3] = {1, 1, 1};
+    void update(float dt)
+    {
+        m_player.update();
+    }
 
-    sf::RenderTexture m_light_texture;
-    sf::RenderTexture m_light_cut;
-    m_light_texture.create(window.getSize().x, window.getSize().y);
-    m_light_texture.setSmooth(true);
-    m_light_cut.create(window.getSize().x, window.getSize().y);
-    m_light_cut.setSmooth(true);
-
-    while (window.isOpen())
+    void draw()
     {
 
-        window.clear(sf::Color::White);
-
-        sf::Event event;
-        while (window.pollEvent(event))
-        {
-            ImGui::SFML::ProcessEvent(event);
-
-            auto mouse_pos_sf = window.mapPixelToCoords(sf::Mouse::getPosition(window));
-            auto mouse_pos = cdt::Vector2f{mouse_pos_sf.x, mouse_pos_sf.y};
-            if (event.type == sf::Event::MouseButtonReleased && event.mouseButton.button == sf::Mouse::Right)
-            {
-                cdt.reset();
-                map.changeTiles(MapGrid::Tile::Wall, mouse_pos, {2, 2});
-                auto edges = map.extractEdges();
-                std::vector<cdt::EdgeVInd> edge_inds;
-                for (auto &e : edges)
-                {
-                    cdt::EdgeVInd e_ind;
-                    auto v_ind1 = cdt.insertVertexAndGetData(e.from).overlapping_vertex;
-                    e_ind.from = (v_ind1 == -1 ? cdt.m_vertices.size() - 1 : v_ind1);
-
-                    auto v_ind2 = cdt.insertVertexAndGetData(e.to()).overlapping_vertex;
-                    e_ind.to = (v_ind2 == -1 ? cdt.m_vertices.size() - 1 : v_ind2);
-
-                    edge_inds.push_back(e_ind);
-                }
-                for (auto &e : edge_inds)
-                {
-                    cdt.insertConstraint(e);
-                }
-            }
-
-            if (event.type == sf::Event::MouseWheelMoved)
-            {
-                view = window.getView();
-                if (event.mouseWheelScroll.wheel > 0)
-                {
-                    view.zoom(0.9f);
-                }
-                else
-                {
-                    view.zoom(1. / 0.9f);
-                }
-                window.setView(view);
-            }
-
-            if (event.type == sf::Event::Closed)
-            {
-                window.close();
-            }
-            player.handleEvent(event);
-        }
-
-        player.update();
-
-        ImGui::SFML::Update(window, m_clock.restart());
+        ImGui::SFML::Update(m_window, m_clock.restart());
         ImGui::Begin("Control Panel"); // Create a window called "Hello, world!" and append into it.
-        ImGui::SliderFloat("vision distance", &player.vision_distance, 0, 100);
+        ImGui::SliderFloat("vision distance", &m_player.vision_distance, 0, 100);
         ImGui::ColorPicker3("vision color", m_light_color);
         ImGui::End();
 
-        ImGui::SFML::Render(window);
+        ImGui::SFML::Render(m_window);
 
-        for (auto &tri : cdt.m_triangles)
+        for (auto &tri : m_cdt.m_triangles)
         {
             sf::Vector2f v1(tri.verts[0].x, tri.verts[0].y);
             sf::Vector2f v2(tri.verts[1].x, tri.verts[1].y);
             sf::Vector2f v3(tri.verts[2].x, tri.verts[2].y);
-            tri.is_constrained[0] ? drawLine(window, v1, v2, sf::Color::Red) : drawLine(window, v1, v2);
-            tri.is_constrained[1] ? drawLine(window, v2, v3, sf::Color::Red) : drawLine(window, v2, v3);
-            tri.is_constrained[2] ? drawLine(window, v3, v1, sf::Color::Red) : drawLine(window, v3, v1);
+            tri.is_constrained[0] ? drawLine(m_window, v1, v2, sf::Color::Red) : drawLine(m_window, v1, v2);
+            tri.is_constrained[1] ? drawLine(m_window, v2, v3, sf::Color::Red) : drawLine(m_window, v2, v3);
+            tri.is_constrained[2] ? drawLine(m_window, v3, v1, sf::Color::Red) : drawLine(m_window, v3, v1);
         }
 
         sf::RectangleShape player_rect;
-        player_rect.setPosition(player.pos.x, player.pos.y);
+        player_rect.setPosition(m_player.pos.x, m_player.pos.y);
         player_rect.setSize({1.f, 1.f});
         player_rect.setFillColor(sf::Color::Red);
-        window.draw(player_rect);
+        m_window.draw(player_rect);
 
-        m_vision.contrstuctField(player.pos, {0, 0});
+        m_vision.contrstuctField(m_player.pos, {0, 0});
         auto vision_poly = m_vision.getDrawVertices();
 
         sf::Color base_color = {0, 0, 0, 255};
         m_light_texture.clear(base_color);
 
-        m_light_texture.setView(window.getView());
+        m_light_texture.setView(m_window.getView());
         m_light_texture.draw(vision_poly);
         m_light_texture.display();
 
@@ -277,11 +194,11 @@ int main(int argc, char **argv)
         circle_verts.resize(50 + 2);
         circle_verts.setPrimitiveType(sf::TriangleFan);
         sf::Color color(m_light_color[0] * 255, m_light_color[1] * 255, m_light_color[2] * 255, 255);
-        circle_verts[0] = {{player.pos.x, player.pos.y}, color};
+        circle_verts[0] = {{m_player.pos.x, m_player.pos.y}, color};
         for (auto i = 0; i < 50; ++i)
         {
             float angle = i / 50. * 360.f;
-            cdt::Vector2f r = player.pos + player.vision_distance * angle2dir(angle);
+            cdt::Vector2f r = m_player.pos + m_player.vision_distance * angle2dir(angle);
             circle_verts[i + 1].position = {r.x, r.y};
             circle_verts[i + 1].color = base_color;
             circle_verts[i + 1].color.a = 30;
@@ -293,17 +210,115 @@ int main(int argc, char **argv)
         states.blendMode.colorDstFactor = sf::BlendMode::DstColor;
         states.blendMode.colorEquation = sf::BlendMode::Add;
 
-        m_light_cut.setView(window.getView());
+        m_light_cut.setView(m_window.getView());
         m_light_cut.draw(circle_verts, states);
         m_light_cut.display();
 
-        combineTextures(m_light_cut, m_light_texture, full_pass, sf::BlendMultiply);
+        combineTextures(m_light_cut, m_light_texture, m_full_pass, sf::BlendMultiply);
         m_light_texture.display();
+        smoothLights(m_light_texture, m_window);
 
-        app.smoothLights(m_light_texture, window);
+        m_window.display();
 
-        window.display();
     }
+
+    void handleEvent(sf::Event event)
+    {
+
+        ImGui::SFML::ProcessEvent(event);
+
+        auto mouse_pos_sf = m_window.mapPixelToCoords(sf::Mouse::getPosition(m_window));
+        auto mouse_pos = cdt::Vector2f{mouse_pos_sf.x, mouse_pos_sf.y};
+        if (event.type == sf::Event::MouseButtonReleased && event.mouseButton.button == sf::Mouse::Right)
+        {
+            m_cdt.reset();
+            m_map.changeTiles(MapGrid::Tile::Wall, mouse_pos, {2, 2});
+            auto edges = m_map.extractEdges();
+            std::vector<cdt::EdgeVInd> edge_inds;
+            for (auto &e : edges)
+            {
+                cdt::EdgeVInd e_ind;
+                auto v_ind1 = m_cdt.insertVertexAndGetData(e.from).overlapping_vertex;
+                e_ind.from = (v_ind1 == -1 ? m_cdt.m_vertices.size() - 1 : v_ind1);
+
+                auto v_ind2 = m_cdt.insertVertexAndGetData(e.to()).overlapping_vertex;
+                e_ind.to = (v_ind2 == -1 ? m_cdt.m_vertices.size() - 1 : v_ind2);
+
+                edge_inds.push_back(e_ind);
+            }
+            for (auto &e : edge_inds)
+            {
+                m_cdt.insertConstraint(e);
+            }
+        }
+
+        if (event.type == sf::Event::MouseWheelMoved)
+        {
+            auto view = m_window.getView();
+            if (event.mouseWheelScroll.wheel > 0)
+            {
+                view.zoom(0.9f);
+            }
+            else
+            {
+                view.zoom(1. / 0.9f);
+            }
+            m_window.setView(view);
+        }
+
+        if (event.type == sf::Event::Closed)
+        {
+            m_window.close();
+        }
+        m_player.handleEvent(event);
+    }
+
+    void smoothLights(const sf::RenderTexture &light_texture, sf::RenderTarget &scene)
+    {
+
+        combineTextures(light_texture, m_texture_pass[0], m_light_smoother, sf::BlendNone);
+
+        for (int i = 0; i < 5; ++i)
+        {
+            m_light_smoother.setUniform("vertical", false);
+            combineTextures(m_texture_pass[0], m_texture_pass[1], m_light_smoother, sf::BlendNone);
+
+            m_light_smoother.setUniform("vertical", true);
+            combineTextures(m_texture_pass[1], m_texture_pass[0], m_light_smoother, sf::BlendNone);
+        }
+
+        auto old_view = scene.getView();
+        scene.setView(scene.getDefaultView());
+        combineTextures(m_texture_pass[0], scene, m_full_pass, sf::BlendMultiply);
+        scene.setView(old_view);
+    }
+
+private:
+    sf::RenderWindow m_window;
+    sf::Clock m_clock;
+
+    sf::RenderTexture m_texture_pass[2];
+    sf::RenderTexture m_light_cut;
+    sf::RenderTexture m_light_texture;
+
+    sf::Shader m_light_smoother;
+    sf::Shader m_light_combiner;
+    sf::Shader m_full_pass;
+
+    Player m_player;
+
+    float m_light_color[3] = {1, 1, 1};
+
+    cdt::Triangulation<cdt::Triangle> m_cdt;
+    MapGrid m_map;
+    VisionField m_vision;
+};
+
+int main(int argc, char **argv)
+{
+
+    Application app({100, 100});
+    app.run();
 
     return 0;
 }
