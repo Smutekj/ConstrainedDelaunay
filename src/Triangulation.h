@@ -12,13 +12,18 @@
 #include "core.h"
 #include "Grid.h"
 
+namespace sf
+{
+    class RenderWindow;
+}
+
 namespace cdt
 {
 
     using TriInd = unsigned int;
     using VertInd = unsigned int;
-    using Vertex = cdt::Vector2i;
 
+    //! \struct holding indices of two vertices in the triangulation
     struct EdgeVInd
     {
         VertInd from = -1;
@@ -34,6 +39,7 @@ namespace cdt
         }
     };
 
+    template <class Vertex>
     struct EdgeI
     {
         Vertex from;
@@ -48,8 +54,8 @@ namespace cdt
         bool operator==(const EdgeI &e) const { return e.from == from and e.t == t; }
     };
 
-
     //! \struct holds data relating to triangle. Ordering is counterclowise (see image)
+    template <class Vertex>
     struct Triangle
     {
         Vertex verts[3];                    //! vertex coordinates
@@ -64,14 +70,15 @@ namespace cdt
 
         cdt::Vector2f getCenter() const
         {
-            return asFloat(verts[0] + verts[1] + verts[2])/3.f;
+            return asFloat(verts[0] + verts[1] + verts[2]) / 3.f;
         }
     };
 
     //! \struct function object used to convert an edge into a hash
     struct EdgeHash
     {
-        std::size_t operator()(const EdgeI &e) const
+        template <class Vertex>
+        std::size_t operator()(const EdgeI<Vertex> &e) const
         {
             return std::hash<VertInd>()(e.from.x) ^ std::hash<VertInd>()(e.t.x) ^ std::hash<VertInd>()(e.from.y) ^
                    std::hash<VertInd>()(e.t.y);
@@ -84,11 +91,11 @@ namespace cdt
         EdgeVInd overlapping_edge;
     };
 
-    template <class TriangleT = Triangle>
+    template <class Vertex = cdt::Vector2i>
     class Triangulation
     {
     public:
-        explicit Triangulation(cdt::Vector2i box_size);
+        explicit Triangulation(Vertex box_size);
         Triangulation() = default;
 
         void reset();
@@ -98,61 +105,82 @@ namespace cdt
 
         TriInd findTriangle(cdt::Vector2f query_point, bool start_from_last_found = false);
 
-        VertInd findOverlappingVertex(const Vertex &new_vertex, const TriInd tri_ind) const;
-        EdgeVInd findOverlappingEdge(const Vertex &new_vertex, const TriInd tri_ind) const;
-
         void insertVertex(const Vertex &v, bool = false);
         void insertVertexIntoSpace(const Vertex &v, TriInd, VertInd);
         VertexInsertionData insertVertexAndGetData(const Vertex &v, bool = false);
         VertexInsertionData insertVertexAndGetData(int vx, int vy, bool = false);
-        
-        void insertVertices(const std::vector<Vertex>& verts);
+
+        void insertVertices(const std::vector<Vertex> &verts);
 
         void insertConstraint(const EdgeVInd edge);
+        void insertConstraint(const EdgeVInd edge, sf::RenderWindow &window);
 
-
-        int indexOf(const Vertex &v, const Triangle &tri) const;
-        int oppositeIndex(const TriInd np, const Triangle &tri);
+        int indexOf(const Vertex &v, const Triangle<Vertex> &tri) const;
+        int oppositeIndex(const TriInd np, const Triangle<Vertex> &tri);
 
         void dumpToFile(const std::string filename) const;
 
         void updateCellGrid();
 
         bool allAreDelaunay() const;
+        std::vector<EdgeI<Vertex>> findOverlappingConstraints(const Vertex &vi, const Vertex &vj);
+
+        std::vector<EdgeVInd> findOverlappingConstraints2(const Vertex &vi, const Vertex &vj);
 
     private:
+        bool areCollinear(const Vertex &v1, const Vertex &v2, const Vertex &v3) const
+        {
+            return approx_equal_zero(orient(v1, v2, v3));
+        }
+        bool liesBetween(const Vertex &v, const Vertex &v_left, const Vertex &v_right) const
+        {
+            return areCollinear(v, v_left, v_right) &&
+                   dot(v - v_left, v_right - v_left) * dot(v - v_right, v_right - v_left) <= 0;
+        }
+
+        VertInd findOverlappingVertex(const Vertex &new_vertex, const TriInd tri_ind) const;
+        EdgeVInd findOverlappingEdge(const Vertex &new_vertex, const TriInd tri_ind) const;
+
         TriInd findTriangle(Vertex query_point, bool start_from_last_found = false);
 
         bool edgesIntersect(const EdgeVInd e1, const EdgeVInd e2) const noexcept;
-        bool edgesIntersect(const EdgeI e1, const EdgeI e2) const noexcept;
+        bool edgesIntersect(const EdgeI<Vertex> e1, const EdgeI<Vertex> e2) const noexcept;
 
-        void insertVertexOnEdge(const Vertex &v, TriInd tri_ind_a, TriInd tri_ind_b, const EdgeI &edge);
+        void insertVertexOnEdge(const Vertex &v, TriInd tri_ind_a, TriInd tri_ind_b, const EdgeI<Vertex> &edge);
 
         bool isConvex(const Vertex v1, const Vertex v2, const Vertex v3, const Vertex v4) const;
 
-        VertInd oppositeOfEdge(const Triangle &tri, const EdgeI &e) const;
+        int oppositeOfEdge(const Triangle<Vertex> &tri, const EdgeI<Vertex> &e) const;
 
-        TriInd triangleOppositeOfEdge(const Triangle &tri, const EdgeI &edge) const;
+        TriInd triangleOppositeOfEdge(const Triangle<Vertex> &tri, const EdgeI<Vertex> &edge) const;
 
-        void swapConnectingEdge(const TriInd &tri_ind_a, const TriInd &tri_ind_b, int v_ind, Vertex v_a, bool inv = false);
+        void swapConnectingEdgeClockwise(const TriInd &tri_ind_a, const TriInd &tri_ind_b);
+        void swapConnectingEdgeCounterClockwise(const TriInd &tri_ind_a, const TriInd &tri_ind_b);
 
-        void findIntersectingEdges(const EdgeVInd &e, std::deque<EdgeI> &intersected_edges,
+        void findIntersectingEdges(const EdgeVInd &e, std::deque<EdgeI<Vertex>> &intersected_edges,
                                    std::deque<TriInd> &intersected_tri_inds);
 
         bool isCounterClockwise(const Vertex &v_query, const Vertex &v1, const Vertex &v2) const;
         bool needSwap(const Vertex &vp, const Vertex &v1, const Vertex &v2, const Vertex &v3) const;
-        
+
         long long det(const Vertex &v1, const Vertex &v2, const Vertex &v3) const;
-        bool hasGoodOrientation(const Triangle &tri) const;
+        bool hasGoodOrientation(const Triangle<Vertex> &tri) const;
         bool allTrianglesValid() const;
-        
-        bool isDelaunay(const Triangle &tri) const;
+
+        bool isDelaunay(const Triangle<Vertex> &tri) const;
         bool triangulationIsConsistent() const;
 
+        template <class VectorType>
+        bool withinBoundary(const VectorType& query)
+        {
+            return query.x >= 0 && query.x <= m_boundary.x &&
+                   query.y >= 0 && query.y <= m_boundary.y;
+        }
+
     public:
-        std::vector<Triangle> m_triangles;
+        std::vector<Triangle<Vertex>> m_triangles;
         std::vector<Vertex> m_vertices;
-        std::unordered_set<EdgeI, EdgeHash> m_fixed_edges;
+        std::unordered_set<EdgeI<Vertex>, EdgeHash> m_fixed_edges;
 
         std::vector<std::array<VertInd, 3>> m_tri_ind2vert_inds;
         std::vector<std::array<bool, 3>> m_triedge_constrained;
@@ -193,7 +221,8 @@ namespace cdt
         return ind_in_tri - 1;
     }
 
-    inline int indInTriOf(const Triangle &tri, const TriInd neighbour)
+    template <class Vertex>
+    inline int indInTriOf(const Triangle<Vertex> &tri, const TriInd neighbour)
     {
         auto neighbour_it = ::std::find(tri.neighbours.begin(), tri.neighbours.end(), neighbour);
         return neighbour_it - tri.neighbours.begin();
@@ -204,8 +233,8 @@ namespace cdt
     //! \param r
     //! \param tri
     //! \returns true if the point lies inside the triangle
-    template <typename VectorType>
-    inline bool isInTriangle(const VectorType &r, const Triangle &tri)
+    template <typename VectorType, class Vertex>
+    inline bool isInTriangle(const VectorType &r, const Triangle<Vertex> &tri)
     {
         float d1, d2, d3;
         bool has_neg, has_pos;

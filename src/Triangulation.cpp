@@ -6,24 +6,72 @@
 #include <stack>
 #include <queue>
 
+#include <SFML/Graphics.hpp>
+
+void inline drawLine(sf::RenderWindow &window, sf::Vector2f p1, sf::Vector2f p2, sf::Color color = sf::Color::Green)
+{
+    sf::RectangleShape line;
+    line.setFillColor(color);
+    line.setOrigin({0, 0.1});
+    line.setPosition(p1);
+    sf::Vector2f dr = p2 - p1;
+    line.setSize({cdt::norm(dr), 0.2});
+    line.setRotation(std::atan2(dr.y, dr.x) * 180.f / M_PI);
+
+    window.draw(line);
+}
+
+sf::Font m_font;
+
+void inline drawTriInds(cdt::Triangulation<cdt::Vector2i> &cdt, sf::RenderWindow &window)
+{
+    sf::Text num;
+    num.setFont(m_font);
+    num.setFillColor(sf::Color::Blue);
+    for (int ind = 0; ind < cdt.m_triangles.size(); ++ind)
+    {
+        auto &tri = cdt.m_triangles.at(ind);
+        num.setString(std::to_string(ind));
+        auto center = asFloat(tri.verts[0] + tri.verts[1] + tri.verts[2]) / 3.f;
+        num.setPosition(center.x, center.y); // - sf::Vector2f(num.getGlobalBounds().width, num.getLocalBounds().height)
+        num.setScale(0.03f, 0.03f);
+        window.draw(num);
+    }
+}
+
+void inline drawTriangulation(cdt::Triangulation<cdt::Vector2i> &cdt, sf::RenderWindow &window)
+{
+    window.clear(sf::Color::White);
+    int tri_ind = 0;
+    for (auto &tri : cdt.m_triangles)
+    {
+        sf::Vector2f v1(tri.verts[0].x, tri.verts[0].y);
+        sf::Vector2f v2(tri.verts[1].x, tri.verts[1].y);
+        sf::Vector2f v3(tri.verts[2].x, tri.verts[2].y);
+        tri.is_constrained[0] ? drawLine(window, v1, v2, sf::Color::Red) : drawLine(window, v1, v2);
+        tri.is_constrained[1] ? drawLine(window, v2, v3, sf::Color::Red) : drawLine(window, v2, v3);
+        tri.is_constrained[2] ? drawLine(window, v3, v1, sf::Color::Red) : drawLine(window, v3, v1);
+    }
+}
+
 namespace cdt
 {
 
-    template <class TriangleT>
-    Triangulation<TriangleT>::Triangulation(cdt::Vector2i box_size)
+    template <class Vertex>
+    Triangulation<Vertex>::Triangulation(Vertex box_size)
         : m_boundary(box_size)
     {
-        static_assert(std::is_base_of<TriangleT, Triangle>());
         createBoundary(box_size);
     }
 
     //! \brief Clears all vertices triangles and edges
-    template <class TriangleT>
-    void Triangulation<TriangleT>::reset()
+    template <class Vertex>
+    void Triangulation<Vertex>::reset()
     {
         m_vertices.clear();
         m_triangles.clear();
         m_tri_ind2vert_inds.clear();
+        m_fixed_edges.clear();
         m_last_found = 0;
 
         std::fill(m_cell2tri_ind.begin(), m_cell2tri_ind.end(), -1);
@@ -34,8 +82,8 @@ namespace cdt
     //! \param query_point point whose containing triangle we are looking for
     //! \param start_from_last_found whether we start looking from previously found triangle... uses search grid if false
     //!\returns index of a triangle containing query_point or -1 if no such triangle is found
-    template <class TriangleT>
-    TriInd Triangulation<TriangleT>::findTriangle(Vertex query_point, bool from_last_found)
+    template <class Vertex>
+    TriInd Triangulation<Vertex>::findTriangle(Vertex query_point, bool from_last_found)
     {
 
         TriInd tri_ind = m_last_found;
@@ -131,9 +179,14 @@ namespace cdt
     //! \param query_point point whose containing triangle we are looking for
     //! \param start_from_last_found whether we start looking from previously found triangle... uses search grid if false
     //!\returns index of a triangle containing query_point or -1 if no such triangle is found
-    template <class TriangleT>
-    TriInd Triangulation<TriangleT>::findTriangle(cdt::Vector2f query_point, bool from_last_found)
+    template <class Vertex>
+    TriInd Triangulation<Vertex>::findTriangle(cdt::Vector2f query_point, bool from_last_found)
     {
+
+        if(!withinBoundary(query_point))
+        {
+            return -1;
+        }
 
         TriInd tri_ind = m_last_found;
         if (!from_last_found)
@@ -226,15 +279,15 @@ namespace cdt
 
     //! \brief creates supertriangle which contains specified boundary then
     //! \param boundary dimensions of a boundary contained in supertriangle
-    template <class TriangleT>
-    void Triangulation<TriangleT>::createSuperTriangle(cdt::Vector2i box_size)
+    template <class Vertex>
+    void Triangulation<Vertex>::createSuperTriangle(cdt::Vector2i box_size)
     {
         m_boundary = box_size;
 
         m_grid = std::make_unique<Grid>(cdt::Vector2i{20, 20}, box_size);
         m_cell2tri_ind.resize(m_grid->getNCells(), -1);
 
-        Triangle super_triangle;
+        Triangle<Vertex> super_triangle;
         m_tri_ind2vert_inds.push_back({0, 1, 2});
 
         Vertex super_tri0 = {m_boundary.x / 2, m_boundary.y * 3};
@@ -254,14 +307,14 @@ namespace cdt
     //! \brief creates supertriangle which contains specified boundary then
     //!        inserts 4 vertices corresponding to the boundary (upper left point is [0,0])
     //! \param boundary dimensions of a boundary contained in supertriangle
-    template <class TriangleT>
-    void Triangulation<TriangleT>::createBoundaryAndSuperTriangle(cdt::Vector2i box_size)
+    template <class Vertex>
+    void Triangulation<Vertex>::createBoundaryAndSuperTriangle(cdt::Vector2i box_size)
     {
 
         m_grid = std::make_unique<Grid>(cdt::Vector2i{20, 20}, box_size);
         m_cell2tri_ind.resize(m_grid->getNCells(), -1);
 
-        Triangle super_triangle;
+        Triangle<Vertex> super_triangle;
         m_tri_ind2vert_inds.push_back({0, 1, 2});
 
         Vertex super_tri0 = {m_boundary.x / 2, m_boundary.y * 3};
@@ -306,8 +359,8 @@ namespace cdt
     //! \brief creates supertriangle which contains specified boundary then
     //!        inserts 4 vertices corresponding to the boundary (upper left point is [0,0])
     //! \param boundary dimensions of a boundary contained in supertriangle
-    template <class TriangleT>
-    void Triangulation<TriangleT>::createBoundary(cdt::Vector2i box_size)
+    template <class Vertex>
+    void Triangulation<Vertex>::createBoundary(cdt::Vector2i box_size)
     {
 
         m_boundary = box_size;
@@ -315,8 +368,8 @@ namespace cdt
         m_grid = std::make_unique<Grid>(cdt::Vector2i{20, 20}, box_size);
         m_cell2tri_ind.resize(m_grid->getNCells(), -1);
 
-        Triangle tri_up;
-        Triangle tri_down;
+        Triangle<Vertex> tri_up;
+        Triangle<Vertex> tri_down;
         m_tri_ind2vert_inds.push_back({0, 2, 1});
         m_tri_ind2vert_inds.push_back({0, 3, 2});
 
@@ -364,8 +417,8 @@ namespace cdt
     //! \param np index of the neighbouring triangle
     //! \param tri
     //! \returns index in triangle of the vertex in tri opposite of triangle \p np
-    template <class TriangleT>
-    int Triangulation<TriangleT>::oppositeIndex(const TriInd np, const Triangle &tri)
+    template <class Vertex>
+    int Triangulation<Vertex>::oppositeIndex(const TriInd np, const Triangle<Vertex> &tri)
     {
         if (np == tri.neighbours[0])
         {
@@ -385,27 +438,11 @@ namespace cdt
         }
     }
 
-    // //! \param tri  triangle
-    // //! \param edge edge with vertex indices
-    // //! \returns index of triangle opposite of \p tri accross \p edge
-    // template <class TriangleT>
-    // TriInd Triangulation<TriangleT>::triangleOppositeOfEdge(const Triangle &tri, const EdgeVInd &e)
-    // {
-    //     const auto i2 = indexOf(e.from, tri);
-    //     const auto i1 = indexOf(e.to, tri);
-    //     if (i1 == -1 or i2 == -1)
-    //     {
-    //         return -1;
-    //     }
-    //     assert(i1 != -1 and i2 != -1);
-    //     return tri.neighbours[(oppositeOfEdge(tri, e) + 1) % 3];
-    // }
-
     //! \param tri  trian
     //! \param e    edge containing vertex coordinates it connects
     //! \returns index of triangle opposite of \p tri accross \p edge
-    template <class TriangleT>
-    TriInd Triangulation<TriangleT>::triangleOppositeOfEdge(const Triangle &tri, const EdgeI &e) const
+    template <class Vertex>
+    TriInd Triangulation<Vertex>::triangleOppositeOfEdge(const Triangle<Vertex> &tri, const EdgeI<Vertex> &e) const
     {
         const auto i2 = indexOf(e.from, tri);
         const auto i1 = indexOf(e.to(), tri);
@@ -420,8 +457,8 @@ namespace cdt
     //! \param e1 edge containg indices of vertices forming a first edge
     //! \param e2 edge containg indices of vertices forming a second edge
     //! \returns true if lines representing given edges intersect
-    template <class TriangleT>
-    bool Triangulation<TriangleT>::edgesIntersect(const EdgeVInd e1, const EdgeVInd e2) const noexcept
+    template <class Vertex>
+    bool Triangulation<Vertex>::edgesIntersect(const EdgeVInd e1, const EdgeVInd e2) const noexcept
     {
         return segmentsIntersect(m_vertices[e1.from], m_vertices[e1.to], m_vertices[e2.from], m_vertices[e2.to]);
     }
@@ -429,16 +466,16 @@ namespace cdt
     //! \param e1 edge containg vertices forming a first edge
     //! \param e2 edge containg vertices forming a second edge
     //! \returns true if lines representing given edges intersect
-    template <class TriangleT>
-    bool Triangulation<TriangleT>::edgesIntersect(const EdgeI e1, const EdgeI e2) const noexcept
+    template <class Vertex>
+    bool Triangulation<Vertex>::edgesIntersect(const EdgeI<Vertex> e1, const EdgeI<Vertex> e2) const noexcept
     {
         return segmentsIntersect(e1.from, e1.to(), e2.from, e2.to());
     }
 
     //! \brief updates search grid used to find triangles
     //! \brief should be called whenever triagulation changes
-    template <class TriangleT>
-    void Triangulation<TriangleT>::updateCellGrid()
+    template <class Vertex>
+    void Triangulation<Vertex>::updateCellGrid()
     {
         const auto dx = m_grid->m_cell_size.x;
         const auto dy = m_grid->m_cell_size.y;
@@ -485,8 +522,8 @@ namespace cdt
     //! \param tri_ind_a index of counterclockwise triangle
     //! \param tri_ind_b index of a clockwise triangle
     //! \param edge
-    template <class TriangleT>
-    void Triangulation<TriangleT>::insertVertexOnEdge(const Vertex &new_vertex, TriInd tri_ind_a, TriInd tri_ind_b, const EdgeI &e)
+    template <class Vertex>
+    void Triangulation<Vertex>::insertVertexOnEdge(const Vertex &new_vertex, TriInd tri_ind_a, TriInd tri_ind_b, const EdgeI<Vertex> &e)
     {
         const auto new_vertex_ind = m_vertices.size() - 1;
 
@@ -499,8 +536,8 @@ namespace cdt
         const auto ind_in_tri_a = oppositeOfEdge(tri_a, e);
         const auto ind_in_tri_b = oppositeOfEdge(tri_b, e);
 
-        Triangle tri_a_new = tri_a;
-        Triangle tri_b_new = tri_b;
+        Triangle<Vertex> tri_a_new = tri_a;
+        Triangle<Vertex> tri_b_new = tri_b;
 
         m_tri_ind2vert_inds.push_back(m_tri_ind2vert_inds[tri_ind_a]);
         m_tri_ind2vert_inds.push_back(m_tri_ind2vert_inds[tri_ind_b]);
@@ -626,7 +663,7 @@ namespace cdt
 
                 auto &a = old_tri.verts[(new_vert_ind_in_tri + 2) % 3];
                 assert(isCounterClockwise(a, v3, vp));
-                swapConnectingEdge(old_tri_ind, next_tri_ind, new_vertex_ind, new_vertex);
+                swapConnectingEdgeClockwise(old_tri_ind, next_tri_ind);
 
                 if (old_tri.neighbours[(new_vert_ind_in_tri + 1) % 3] != -1)
                 {
@@ -644,8 +681,8 @@ namespace cdt
     //! \param tri_ind triangle index of an existing triangle containing new_vertex
     //! \returns index of the overlapping vertex
     //! \returns -1 in case there is no existing overlapping vertex
-    template <class TriangleT>
-    VertInd Triangulation<TriangleT>::findOverlappingVertex(const Vertex &new_vertex, const TriInd tri_ind) const
+    template <class Vertex>
+    VertInd Triangulation<Vertex>::findOverlappingVertex(const Vertex &new_vertex, const TriInd tri_ind) const
     {
         assert(tri_ind != -1);
         const auto old_triangle = m_triangles[tri_ind];
@@ -672,8 +709,8 @@ namespace cdt
     //! \param tri_ind triangle index of an existing triangle containing new_vertex
     //! \returns overlapping edge
     //! \returns {-1, -1} in case there is no overlapping edge
-    template <class TriangleT>
-    EdgeVInd Triangulation<TriangleT>::findOverlappingEdge(const Vertex &new_vertex, const TriInd tri_ind) const
+    template <class Vertex>
+    EdgeVInd Triangulation<Vertex>::findOverlappingEdge(const Vertex &new_vertex, const TriInd tri_ind) const
     {
         const auto &old_triangle = m_triangles[tri_ind];
         const auto v0 = old_triangle.verts[0];
@@ -707,8 +744,8 @@ namespace cdt
     //! \brief inserts \p new_vertex into triangulation
     //! \param new_vertex
     //! \param search_from_last_one should be true if last added vertex is not far from \p new_vertex
-    template <class TriangleT>
-    void Triangulation<TriangleT>::insertVertex(const Vertex &new_vertex, bool search_from_last_one)
+    template <class Vertex>
+    void Triangulation<Vertex>::insertVertex(const Vertex &new_vertex, bool search_from_last_one)
     {
         auto data = insertVertexAndGetData(new_vertex, search_from_last_one);
         assert(allTrianglesValid());
@@ -719,37 +756,39 @@ namespace cdt
     //! \param new_vertex
     //! \param search_from_last_one should be true if last added vertex is not far from \p new_vertex
     //! \returns data relating to the actual type of insertion performed
-    template <class TriangleT>
-    VertexInsertionData Triangulation<TriangleT>::insertVertexAndGetData(int vx, int vy, bool search_from_last_one)
+    template <class Vertex>
+    VertexInsertionData Triangulation<Vertex>::insertVertexAndGetData(int vx, int vy, bool search_from_last_one)
     {
         return insertVertexAndGetData({vx, vy}, search_from_last_one);
     }
 
-    template <class TriangleT>
-    void Triangulation<TriangleT>::insertVertices(const std::vector<Vertex> &verts)
+    //! \brief inserts all \p verts into the triangulation
+    //!
+    template <class Vertex>
+    void Triangulation<Vertex>::insertVertices(const std::vector<Vertex> &verts)
     {
         int vert_ind = m_vertices.size();
         std::vector<std::vector<Vertex>> m_grid2vert_inds(m_grid->getNCells());
-        
+
         //! sort vertices into bins formed by grid cells
         for (auto &v : verts)
         {
             m_grid2vert_inds.at(m_grid->cellIndex(v)).push_back(v);
             vert_ind++;
         }
-        
+
         auto cells_x = m_grid->m_cell_count.x;
         for (int iy = 0; iy < m_grid->m_cell_count.y; iy++)
         {
-            bool odd_line = iy%2 == 1;
+            bool odd_line = iy % 2 == 1;
             for (int ix = 0; ix < m_grid->m_cell_count.x; ix++)
             {
 
-                int ix_walk = odd_line*(cells_x-1) + (1 - 2*odd_line) * ix; 
+                int ix_walk = odd_line * (cells_x - 1) + (1 - 2 * odd_line) * ix;
                 auto cell_ind = m_grid->cellIndex(ix_walk, iy);
-                for(auto& v : m_grid2vert_inds.at(cell_ind))
+                for (auto &v : m_grid2vert_inds.at(cell_ind))
                 {
-                    insertVertex(v, true);
+                    auto data = insertVertexAndGetData(v, true);
                 }
             }
         }
@@ -760,11 +799,15 @@ namespace cdt
     //! \param new_vertex
     //! \param search_from_last_one should be true if last added vertex is not far from \p new_vertex
     //! \returns data relating to the actual type of insertion performed
-    template <class TriangleT>
-    VertexInsertionData Triangulation<TriangleT>::insertVertexAndGetData(const Vertex &new_vertex, bool search_from_last_one)
+    template <class Vertex>
+    VertexInsertionData Triangulation<Vertex>::insertVertexAndGetData(const Vertex &new_vertex, bool search_from_last_one)
     {
-
         VertexInsertionData data;
+        
+        if(!withinBoundary(new_vertex))
+        {
+            return data;
+        }
 
         auto tri_ind = findTriangle(new_vertex, search_from_last_one);
         const auto old_triangle = m_triangles[tri_ind];
@@ -795,8 +838,8 @@ namespace cdt
     //! \param new_vertex
     //! \param search_from_last_one should be true if last added vertex is not far from \p new_vertex
     //! \returns data relating to the actual type of insertion performed
-    template <class TriangleT>
-    void Triangulation<TriangleT>::insertVertexIntoSpace(const Vertex &new_vertex, TriInd tri_ind, VertInd new_vertex_ind)
+    template <class Vertex>
+    void Triangulation<Vertex>::insertVertexIntoSpace(const Vertex &new_vertex, TriInd tri_ind, VertInd new_vertex_ind)
     {
 
         const auto old_triangle = m_triangles[tri_ind];
@@ -930,7 +973,7 @@ namespace cdt
 
                 auto &a = old_tri.verts[(newvert_ind_in_tri + 2) % 3];
                 assert(isCounterClockwise(a, v3, vp));
-                swapConnectingEdge(old_tri_ind, next_tri_ind, new_vertex_ind, new_vertex);
+                swapConnectingEdgeCounterClockwise(old_tri_ind, next_tri_ind);
 
                 if (old_tri.neighbours[(newvert_ind_in_tri + 1) % 3] != -1)
                 {
@@ -945,29 +988,18 @@ namespace cdt
     }
 
     //! \returns true if quadrilateral formed by the giver four vertices is convex
-    template <class TriangleT>
-    bool Triangulation<TriangleT>::isConvex(const Vertex v1, const Vertex v2, const Vertex v3,
-                                            const Vertex v4) const
+    template <class Vertex>
+    bool Triangulation<Vertex>::isConvex(const Vertex v1, const Vertex v2, const Vertex v3,
+                                         const Vertex v4) const
     { //! v1-v3 and v2-v4 are diagonals
         return segmentsIntersect(v1, v3, v2, v4);
     }
 
-    // //! \param edge represented by vertex indices
-    // //! \param tri
-    // //! \returns index in triangle of the vertex in \p tri which is opposite of the \p edge
-    // template <class TriangleT>
-    // VertInd Triangulation<TriangleT>::oppositeOfEdge(const Triangle &tri, const EdgeVInd &edge) const
-    // {
-    //     const auto i1 = indexOf(edge.from, tri);
-    //     const auto i2 = indexOf(edge.to, tri);
-    //     return 3 - (i1 + i2); //! i1 + i2 has values 1,2,3.. corresponding output should be 2,1,0
-    // }
-
     //! \param edge represented by vertex coordinates
     //! \param tri
     //! \returns index in triangle of the vertex in \p tri which is opposite of the \p edge
-    template <class TriangleT>
-    VertInd Triangulation<TriangleT>::oppositeOfEdge(const Triangle &tri, const EdgeI &e) const
+    template <class Vertex>
+    int Triangulation<Vertex>::oppositeOfEdge(const Triangle<Vertex> &tri, const EdgeI<Vertex> &e) const
     {
         const auto i1 = indexOf(e.from, tri);
         const auto i2 = indexOf(e.to(), tri);
@@ -976,8 +1008,8 @@ namespace cdt
 
     //! \brief checks if neighbours of each triangles are consistent and
     //! \brief if m_tri_ind2vert_inds points to right place in m_vertices array
-    template <class TriangleT>
-    bool Triangulation<TriangleT>::triangulationIsConsistent() const
+    template <class Vertex>
+    bool Triangulation<Vertex>::triangulationIsConsistent() const
     {
         for (int tri_ind = 0; tri_ind < m_triangles.size(); ++tri_ind)
         {
@@ -1013,30 +1045,52 @@ namespace cdt
 
     //! \brief forces triangulation to have a constrained edge connecting \p e.from and \p e.to
     //! \param e edge representing the constraint
-    template <class TriangleT>
-    void Triangulation<TriangleT>::insertConstraint(const EdgeVInd e)
+    template <class Vertex>
+    void Triangulation<Vertex>::insertConstraint(const EdgeVInd e)
     {
-        std::deque<EdgeI> intersected_edges;
-        std::deque<TriInd> intersected_tri_inds;
-        findIntersectingEdges(e, intersected_edges, intersected_tri_inds);
-
-        std::vector<EdgeI> newly_created_edges;
-        std::vector<std::pair<TriInd, TriInd>> newly_created_edge_tris;
 
         auto vi_ind = e.from;
         auto vj_ind = e.to;
         auto vi = m_vertices[vi_ind];
         auto vj = m_vertices[vj_ind];
+        if (m_fixed_edges.count({vi, vj}) > 0 || e.from == e.to) //! constrained edge alread exists
+        {
+            return;
+        }
+        m_fixed_edges.insert({vi, vj});
+
+        std::deque<EdgeI<Vertex>> intersected_edges;
+        std::deque<TriInd> intersected_tri_inds;
+        findIntersectingEdges(e, intersected_edges, intersected_tri_inds);
+
+        auto overlapsx = findOverlappingConstraints(vi, vj);
+        auto overlaps = findOverlappingConstraints2(vi, vj);
+        if (!overlaps.empty())
+        {
+            for (const auto &overlap : overlaps)
+            {
+                insertConstraint(overlap);
+            }
+            insertConstraint({e.from, overlaps[0].from});
+            for (int i = 1; i < overlaps.size(); ++i)
+            {
+                insertConstraint({overlaps.at(i - 1).to, overlaps.at(i).from});
+            }
+            insertConstraint({e.to, overlaps.back().to});
+            return;
+        }
+
+        std::vector<EdgeI<Vertex>> newly_created_edges;
+        std::vector<std::pair<TriInd, TriInd>> newly_created_edge_tris;
 
         EdgeI e_inserted = {vi, vj};
 
-        //    auto v_current = vi;
+        //! remove intersecting edges
         while (!intersected_edges.empty())
         {
             auto tri_ind = intersected_tri_inds.front();
             auto &tri = m_triangles[tri_ind];
             intersected_tri_inds.pop_front();
-
             auto e_next = intersected_edges.front();
             intersected_edges.pop_front();
 
@@ -1047,28 +1101,193 @@ namespace cdt
             auto v_current = tri.verts[oppositeOfEdge(tri, e_next)];
             auto v_opposite_ind_in_tri = oppositeIndex(tri_ind, next_tri);
             auto v_opposite_current = next_tri.verts[v_opposite_ind_in_tri];
-            assert(allTrianglesValid());
 
+            //! we can swap edges only in convex quadrilaterals otherwise bad shapes get created
             if (isConvex(v_current, e_next.from, v_opposite_current, e_next.to()))
             {
-                if (!isCounterClockwise(v_opposite_current, vi, vj))
+                if (isCounterClockwise(v_opposite_current, vi, vj))
                 {
-                    swapConnectingEdge(tri_ind, next_tri_ind, v_current_ind, v_current);
+                    swapConnectingEdgeCounterClockwise(next_tri_ind, tri_ind);
+                    assert(triangulationIsConsistent());
                 }
                 else
                 {
-                    swapConnectingEdge(tri_ind, next_tri_ind, v_current_ind, v_current, true);
+                    swapConnectingEdgeClockwise(tri_ind, next_tri_ind);
+                    assert(triangulationIsConsistent());
                 }
                 assert(allTrianglesValid());
 
-                //            e_next.from =  v_current_ind;
-                //            e_next.t = v_opposite_current_ind;
                 e_next = {v_current, v_opposite_current};
 
                 if (edgesIntersect(e_next, e_inserted))
                 {
                     intersected_edges.push_back(e_next);
                     intersected_tri_inds.push_back(tri_ind);
+                    auto ind_in_tri = oppositeOfEdge(m_triangles.at(tri_ind), e_next);
+                }
+                else
+                {
+                    newly_created_edges.push_back(e_next);
+                    newly_created_edge_tris.push_back({tri_ind, next_tri_ind});
+                }
+            }
+            else
+            {
+                intersected_edges.push_back(e_next);
+                intersected_tri_inds.push_back(tri_ind);
+            }
+        }
+
+        //! Fix Delaunay triangulation (Steps 4.1 - 4.3)
+        bool some_swap_happened = true;
+        while (some_swap_happened)
+        {
+            some_swap_happened = false;
+
+            for (int i = 0; i < newly_created_edges.size(); ++i)
+            {
+                const auto &e_new = newly_created_edges[i];
+                const auto tri_ind_a = newly_created_edge_tris[i].first;
+                auto &tri_a = m_triangles[tri_ind_a];
+                auto tri_ind_b = triangleOppositeOfEdge(tri_a, e_new);
+                if (tri_ind_b == -1)
+                {
+                    tri_ind_b = newly_created_edge_tris[i].second;
+                }
+                auto &tri_b = m_triangles[tri_ind_b];
+
+                const auto opposite_ind_in_tri_a = oppositeOfEdge(tri_a, e_new);
+                const auto opposite_ind_in_tri_b = oppositeOfEdge(tri_b, e_new);
+
+                vi = tri_a.verts[opposite_ind_in_tri_a];
+                vj = tri_b.verts[opposite_ind_in_tri_b];
+                vi_ind = m_tri_ind2vert_inds[tri_ind_a][opposite_ind_in_tri_a];
+                auto vi_ind_next = m_tri_ind2vert_inds[tri_ind_a][next(opposite_ind_in_tri_a)];
+                auto vi_ind_prev = m_tri_ind2vert_inds[tri_ind_a][prev(opposite_ind_in_tri_a)];
+
+                if (e_new == e_inserted)
+                {
+                    tri_a.is_constrained[next(opposite_ind_in_tri_a)] = true;
+                    tri_b.is_constrained[next(opposite_ind_in_tri_b)] = true;
+                    continue;
+                }
+
+                const auto v1 = m_vertices.at(vi_ind_next);
+                const auto v2 = m_vertices.at(vi_ind_prev);
+
+                bool edge_needs_swap = needSwap(vi, v1, v2, vj);
+                bool is_convex = true; //! Convexity check should be automatically taken care of by needSwap but it doesn't
+                                       //! and I don't know why yet :(
+                if (!isConvex(m_vertices[vi_ind], v1, v2, m_vertices[vj_ind]))
+                {
+                    is_convex = false;
+                }
+                if (edge_needs_swap && is_convex)
+                {
+
+                    swapConnectingEdgeClockwise(tri_ind_a, tri_ind_b);
+                    assert(allTrianglesValid());
+
+                    some_swap_happened = true;
+                    newly_created_edges[i] = {vi, vj};
+                }
+            }
+        }
+    }
+
+    //! \brief forces triangulation to have a constrained edge connecting \p e.from and \p e.to
+    //! \param e edge representing the constraint
+    template <class Vertex>
+    void Triangulation<Vertex>::insertConstraint(const EdgeVInd e, sf::RenderWindow &window)
+    {
+
+        auto vi_ind = e.from;
+        auto vj_ind = e.to;
+        auto vi = m_vertices[vi_ind];
+        auto vj = m_vertices[vj_ind];
+        if (m_fixed_edges.count({vi, vj}) > 0 || e.from == e.to) //! constrained edge alread exists
+        {
+            return;
+        }
+        m_fixed_edges.insert({vi, vj});
+
+        auto overlapsx = findOverlappingConstraints(vi, vj);
+        auto overlaps = findOverlappingConstraints2(vi, vj);
+        if (!overlaps.empty())
+        {
+            for (auto overlap : overlaps)
+            {
+                if (overlap != e)
+                {
+                    insertConstraint(overlap);
+                }
+            }
+            //! inserts constraints between overlapping edges to fill the empty space
+            insertConstraint({e.from, overlaps[0].from});
+            for (int i = 1; i < overlaps.size(); ++i)
+            {
+                insertConstraint({overlaps.at(i - 1).to, overlaps.at(i).from});
+            }
+            insertConstraint({e.to, overlaps.back().to});
+            return;
+        }
+
+        std::deque<EdgeI<Vertex>> intersected_edges;
+        std::deque<TriInd> intersected_tri_inds;
+        findIntersectingEdges(e, intersected_edges, intersected_tri_inds);
+
+        std::vector<EdgeI<Vertex>> newly_created_edges;
+        std::vector<std::pair<TriInd, TriInd>> newly_created_edge_tris;
+
+        EdgeI e_inserted = {vi, vj};
+
+        m_font.loadFromFile("../Resources/arial.ttf");
+
+        //! remove intersecting edges (steps 3.1 3.2)
+        while (!intersected_edges.empty())
+        {
+
+            auto tri_ind = intersected_tri_inds.front();
+            auto &tri = m_triangles[tri_ind];
+            intersected_tri_inds.pop_front();
+            auto e_next = intersected_edges.front();
+            intersected_edges.pop_front();
+
+            auto next_tri_ind = triangleOppositeOfEdge(tri, e_next);
+            auto &next_tri = m_triangles[next_tri_ind];
+
+            assert(next_tri_ind != -1); //! triangle must contain e_next;
+
+            // auto v_current_ind = m_tri_ind2vert_inds[tri_ind][oppositeOfEdge(tri, e_next)];
+            auto v_current = tri.verts[oppositeOfEdge(tri, e_next)];
+            auto v_opposite_ind_in_tri = oppositeIndex(tri_ind, next_tri);
+            auto v_opposite_current = next_tri.verts[v_opposite_ind_in_tri];
+
+            //! we can swap edges only in convex quadrilaterals otherwise bad shapes get created
+            if (isConvex(v_current, e_next.from, v_opposite_current, e_next.to()))
+            {
+                if (isCounterClockwise(v_opposite_current, vi, vj))
+                {
+                    swapConnectingEdgeCounterClockwise(next_tri_ind, tri_ind);
+                }
+                else
+                {
+                    swapConnectingEdgeClockwise(next_tri_ind, tri_ind);
+                }
+                drawTriangulation(*this, window);
+                drawTriInds(*this, window);
+                window.display();
+
+                assert(allTrianglesValid());
+                assert(triangulationIsConsistent());
+
+                e_next = {v_current, v_opposite_current};
+
+                if (edgesIntersect(e_next, e_inserted))
+                {
+                    intersected_edges.push_back(e_next);
+                    intersected_tri_inds.push_back(tri_ind);
+                    auto ind_in_tri = oppositeOfEdge(m_triangles.at(tri_ind), e_next);
                 }
                 else
                 {
@@ -1109,9 +1328,9 @@ namespace cdt
                 vi = tri_a.verts[opposite_ind_in_tri_a];
                 vj = tri_b.verts[opposite_ind_in_tri_b];
                 vi_ind = m_tri_ind2vert_inds[tri_ind_a][opposite_ind_in_tri_a];
+                auto vi_ind_next = m_tri_ind2vert_inds[tri_ind_a][next(opposite_ind_in_tri_a)];
+                auto vi_ind_prev = m_tri_ind2vert_inds[tri_ind_a][prev(opposite_ind_in_tri_a)];
 
-                bool edge_is_not_fixed = m_fixed_edges.count(e_new) == 0;
-                //            bool edge_is_not_fixed = .count(e_new) == 0;
                 if (e_new == e_inserted)
                 {
                     tri_a.is_constrained[next(opposite_ind_in_tri_a)] = true;
@@ -1119,8 +1338,8 @@ namespace cdt
                     continue;
                 }
 
-                const auto v1 = tri_a.verts[(vi_ind + 1) % 3];
-                const auto v2 = tri_a.verts[(vi_ind + 2) % 3];
+                const auto v1 = m_vertices.at(vi_ind_next);
+                const auto v2 = m_vertices.at(vi_ind_prev);
 
                 bool edge_needs_swap = needSwap(vi, v1, v2, vj);
                 bool is_convex = true; //! Convexity check should be automatically taken care of by needSwap but it doesn't
@@ -1132,7 +1351,7 @@ namespace cdt
                 if (edge_needs_swap && is_convex)
                 {
 
-                    swapConnectingEdge(tri_ind_a, tri_ind_b, vi_ind, vi);
+                    swapConnectingEdgeClockwise(tri_ind_a, tri_ind_b);
                     assert(allTrianglesValid());
 
                     some_swap_happened = true;
@@ -1142,100 +1361,403 @@ namespace cdt
         }
     }
 
-    template <class TriangleT>
-    void Triangulation<TriangleT>::swapConnectingEdge(const TriInd &tri_ind_a, const TriInd &tri_ind_b, int v_ind_a, Vertex v_a,
-                                                      bool inv)
+    //! \brief swaps edge connecting \p tri_ind_a with tri_ind_b such that they move in a clockwise manner
+    //! \param tri_ind_a index of a triangle
+    //! \param tri_ind_a index of another triangle
+    template <class Vertex>
+    void Triangulation<Vertex>::swapConnectingEdgeClockwise(const TriInd &tri_ind_a, const TriInd &tri_ind_b)
     {
         auto &tri_a = m_triangles[tri_ind_a];
         auto &tri_b = m_triangles[tri_ind_b];
 
-        auto v_a_ind_in_tri = indexOf(v_a, tri_a);
+        auto v_a_ind_in_tri = oppositeIndex(tri_ind_b, tri_a);
         auto v_b_ind_in_tri = oppositeIndex(tri_ind_a, tri_b);
 
-        if (inv)
-        {
-            //        tri_a.vertinds[(v_a_ind_in_tri + 1 + inv) % 3] = tri_b.vertinds[v_b_ind_in_tri];
-            m_tri_ind2vert_inds[tri_ind_a][(v_a_ind_in_tri + 1 + inv) % 3] = m_tri_ind2vert_inds[tri_ind_b][v_b_ind_in_tri];
-            tri_a.verts[(v_a_ind_in_tri + 1 + inv) % 3] = tri_b.verts[v_b_ind_in_tri];
-            tri_a.neighbours[(v_a_ind_in_tri + 1) % 3] = tri_b.neighbours[(v_b_ind_in_tri + 1 + inv) % 3];
-            tri_a.is_constrained[(v_a_ind_in_tri + 1) % 3] = tri_b.is_constrained[(v_b_ind_in_tri + 1 + inv) % 3];
-            auto old_neighbour = tri_a.neighbours[(v_a_ind_in_tri + 1 + inv) % 3];
-            auto old_edge_state = tri_a.is_constrained[(v_a_ind_in_tri + 1 + inv) % 3];
-            tri_a.neighbours[(v_a_ind_in_tri + 1 + inv) % 3] = tri_ind_b;
-            tri_a.is_constrained[(v_a_ind_in_tri + 1 + inv) % 3] = false;
+        //! change vertices -> prev(a) becomes b and prev(b) becomes a;
+        const auto &v_b = tri_b.verts[v_b_ind_in_tri];
+        const auto &v_a = tri_a.verts[v_a_ind_in_tri];
+        const auto &v_left = tri_a.verts[prev(v_a_ind_in_tri)];
+        const auto &v_right = tri_a.verts[next(v_a_ind_in_tri)];
+        tri_a.verts[next(v_a_ind_in_tri)] = v_b;
+        tri_b.verts[next(v_b_ind_in_tri)] = v_a;
 
-            //        tri_b.vertinds[(v_b_ind_in_tri + 1 + inv) % 3] = v_a;
-            m_tri_ind2vert_inds[tri_ind_b][(v_b_ind_in_tri + 1 + inv) % 3] = v_ind_a;
-            tri_b.verts[(v_b_ind_in_tri + 1 + inv) % 3] = v_a;
-            tri_b.neighbours[(v_b_ind_in_tri + inv) % 3] = old_neighbour;
-            tri_b.is_constrained[(v_b_ind_in_tri + 1 + inv) % 3] = old_edge_state;
-            tri_b.neighbours[(v_b_ind_in_tri + 1 + inv) % 3] = tri_ind_a;
-            tri_b.is_constrained[(v_b_ind_in_tri + 1 + inv) % 3] = false;
-        }
-        else
-        {
-            //        tri_a.vertinds[(v_a_ind_in_tri + 1 ) % 3] = tri_b.vertinds[v_b_ind_in_tri];
-            m_tri_ind2vert_inds[tri_ind_a][(v_a_ind_in_tri + 1) % 3] = m_tri_ind2vert_inds[tri_ind_b][v_b_ind_in_tri];
-            tri_a.verts[(v_a_ind_in_tri + 1) % 3] = tri_b.verts[v_b_ind_in_tri];
-            tri_a.neighbours[(v_a_ind_in_tri + 1) % 3] = tri_b.neighbours[(v_b_ind_in_tri) % 3];
-            tri_a.is_constrained[(v_a_ind_in_tri + 1) % 3] = tri_b.is_constrained[v_b_ind_in_tri];
-            auto old_neighbour = tri_a.neighbours[v_a_ind_in_tri];
-            auto old_edge_state = tri_a.is_constrained[v_a_ind_in_tri];
-            tri_a.neighbours[v_a_ind_in_tri] = tri_ind_b;
-            tri_a.is_constrained[(v_a_ind_in_tri) % 3] = false;
+        //! change neighbours
+        const auto na = tri_a.neighbours[(v_a_ind_in_tri)];
+        const auto nb = tri_b.neighbours[(v_b_ind_in_tri)];
+        const auto na_prev = tri_a.neighbours[prev(v_a_ind_in_tri)];
+        const auto nb_prev = tri_b.neighbours[prev(v_b_ind_in_tri)];
+        tri_a.neighbours[next(v_a_ind_in_tri)] = nb;
+        tri_a.neighbours[(v_a_ind_in_tri)] = tri_ind_b;
+        tri_b.neighbours[next(v_b_ind_in_tri)] = na;
+        tri_b.neighbours[(v_b_ind_in_tri)] = tri_ind_a;
+        //! change constraints
+        tri_a.is_constrained[next(v_a_ind_in_tri)] = tri_b.is_constrained[(v_b_ind_in_tri)];
+        tri_b.is_constrained[next(v_b_ind_in_tri)] = tri_a.is_constrained[(v_a_ind_in_tri)];
+        tri_a.is_constrained[(v_a_ind_in_tri)] = false;
+        tri_b.is_constrained[(v_b_ind_in_tri)] = false;
 
-            //        tri_b.vertinds[(v_b_ind_in_tri + 1) % 3] = v_a;
-            m_tri_ind2vert_inds[tri_ind_b][(v_b_ind_in_tri + 1) % 3] = v_ind_a;
-            tri_b.verts[(v_b_ind_in_tri + 1) % 3] = v_a;
-            tri_b.neighbours[(v_b_ind_in_tri + 1) % 3] = old_neighbour;
-            tri_b.is_constrained[(v_b_ind_in_tri + 1) % 3] = old_edge_state;
-            tri_b.neighbours[v_b_ind_in_tri] = tri_ind_a;
-            tri_b.is_constrained[v_b_ind_in_tri] = false;
-        }
-        //! fix neighbours
+        m_tri_ind2vert_inds.at(tri_ind_a)[next(v_a_ind_in_tri)] = m_tri_ind2vert_inds.at(tri_ind_b)[v_b_ind_in_tri];
+        m_tri_ind2vert_inds.at(tri_ind_b)[next(v_b_ind_in_tri)] = m_tri_ind2vert_inds.at(tri_ind_a)[v_a_ind_in_tri];
 
-        if (tri_a.neighbours[(v_a_ind_in_tri + 1) % 3] != -1)
+        //! tell neighbours that there was a swap changed
+        if (nb != -1)
         {
-            auto &tri_next_next = m_triangles[tri_a.neighbours[(v_a_ind_in_tri + 1) % 3]];
-            for (int i = 0; i < 3; ++i)
-            {
-                if (tri_next_next.neighbours[i] == tri_ind_b)
-                {
-                    tri_next_next.neighbours[i] = tri_ind_a;
-                    break;
-                }
-                if (i == 2)
-                {
-                    throw std::runtime_error("no neighbour found!");
-                }
-            }
+            auto &changed_neighbour_tri = m_triangles[nb];
+            auto ind_in_neighbour = oppositeIndex(tri_ind_b, changed_neighbour_tri);
+            changed_neighbour_tri.neighbours[next(ind_in_neighbour)] = tri_ind_a;
         }
-        if (tri_b.neighbours[(v_b_ind_in_tri + 1) % 3] != -1)
+        if (na != -1)
         {
-            auto &tri_next_next = m_triangles[tri_b.neighbours[(v_b_ind_in_tri + 1) % 3]];
-            for (int i = 0; i < 3; ++i)
-            {
-                if (tri_next_next.neighbours[i] == tri_ind_a)
-                {
-                    tri_next_next.neighbours[i] = tri_ind_b;
-                    break;
-                }
-                if (i == 2)
-                {
-                    throw std::runtime_error("no neighbour found!");
-                }
-            }
+            auto &changed_neighbour_tri = m_triangles[na];
+            auto ind_in_neighbour = oppositeIndex(tri_ind_a, changed_neighbour_tri);
+            changed_neighbour_tri.neighbours[next(ind_in_neighbour)] = tri_ind_b;
         }
     }
+
+    //! \brief swaps edge connecting \p tri_ind_a with tri_ind_b such that they move in a counter-clockwise manner
+    //! \param tri_ind_a index of a triangle
+    //! \param tri_ind_a index of another triangle
+    template <class Vertex>
+    void Triangulation<Vertex>::swapConnectingEdgeCounterClockwise(const TriInd &tri_ind_a, const TriInd &tri_ind_b)
+    {
+        auto &tri_a = m_triangles[tri_ind_a];
+        auto &tri_b = m_triangles[tri_ind_b];
+
+        auto v_a_ind_in_tri = oppositeIndex(tri_ind_b, tri_a);
+        auto v_b_ind_in_tri = oppositeIndex(tri_ind_a, tri_b);
+
+        //! change vertices -> prev(a) becomes b and prev(b) becomes a;
+        const auto &v_b = tri_b.verts[v_b_ind_in_tri];
+        const auto &v_a = tri_a.verts[v_a_ind_in_tri];
+        const auto &v_left = tri_a.verts[prev(v_a_ind_in_tri)];
+        const auto &v_right = tri_a.verts[next(v_a_ind_in_tri)];
+
+        tri_a.verts[prev(v_a_ind_in_tri)] = v_b;
+        tri_b.verts[prev(v_b_ind_in_tri)] = v_a;
+
+        //! change neighbours
+        const auto na_prev = tri_a.neighbours[prev(v_a_ind_in_tri)];
+        const auto nb_prev = tri_b.neighbours[prev(v_b_ind_in_tri)];
+        tri_a.neighbours[next(v_a_ind_in_tri)] = nb_prev;
+        tri_a.neighbours[prev(v_a_ind_in_tri)] = tri_ind_b;
+        tri_b.neighbours[next(v_b_ind_in_tri)] = na_prev;
+        tri_b.neighbours[prev(v_b_ind_in_tri)] = tri_ind_a;
+        //! change constraints
+        tri_a.is_constrained[next(v_a_ind_in_tri)] = tri_b.is_constrained[prev(v_b_ind_in_tri)];
+        tri_b.is_constrained[next(v_b_ind_in_tri)] = tri_a.is_constrained[prev(v_a_ind_in_tri)];
+        tri_a.is_constrained[prev(v_a_ind_in_tri)] = false;
+        tri_b.is_constrained[prev(v_b_ind_in_tri)] = false;
+
+        m_tri_ind2vert_inds.at(tri_ind_a)[prev(v_a_ind_in_tri)] = m_tri_ind2vert_inds.at(tri_ind_b)[v_b_ind_in_tri];
+        m_tri_ind2vert_inds.at(tri_ind_b)[prev(v_b_ind_in_tri)] = m_tri_ind2vert_inds.at(tri_ind_a)[v_a_ind_in_tri];
+
+        //! tell neighbours that there was a swap changed
+        if (nb_prev != -1)
+        {
+            auto &changed_neighbour_tri = m_triangles[nb_prev];
+            auto ind_in_neighbour = oppositeIndex(tri_ind_b, changed_neighbour_tri);
+            changed_neighbour_tri.neighbours[next(ind_in_neighbour)] = tri_ind_a;
+        }
+        if (na_prev != -1)
+        {
+            auto &changed_neighbour_tri = m_triangles[na_prev];
+            auto ind_in_neighbour = oppositeIndex(tri_ind_a, changed_neighbour_tri);
+            changed_neighbour_tri.neighbours[next(ind_in_neighbour)] = tri_ind_b;
+        }
+    }
+
+    template <class Vertex>
+    std::vector<EdgeI<Vertex>> Triangulation<Vertex>::findOverlappingConstraints(const Vertex &vi, const Vertex &vj)
+    {
+
+        //! walk from tri_ind_start to  tri_ind_end while looking for collinear constrained edges
+        const auto start_tri_ind = findTriangle(vi, false);
+        const auto start_tri = m_triangles[start_tri_ind];
+        const auto end_tri_ind = findTriangle(vj, true);
+        const auto end_tri = m_triangles[end_tri_ind];
+
+        auto tri_ind = start_tri_ind;
+        auto tri = m_triangles[tri_ind];
+        auto index_in_tri = indexOf(vi, tri);
+
+        auto v_left = tri.verts[prev(index_in_tri)];
+        auto v_right = tri.verts[next(index_in_tri)];
+
+        std::vector<EdgeI<Vertex>> overlapps;
+
+        bool prev_touched = false;
+
+        // check if the vj is already connected to vi
+        do
+        {
+            if (liesBetween(v_right, vi, vj))
+            {
+                if (tri.is_constrained[index_in_tri])
+                {
+                    overlapps.push_back({vi, v_right});
+                }
+                break;
+            }
+            if (segmentsIntersect(v_left, v_right, vi, vj))
+            {
+                tri_ind = triangleOppositeOfEdge(tri, {v_left, v_right});
+                break;
+            }
+            tri_ind = tri.neighbours[index_in_tri];
+            tri = m_triangles[tri_ind];
+            index_in_tri = indexOf(vi, tri);
+            v_left = v_right;
+            v_right = tri.verts[next(index_in_tri)];
+        } while (tri_ind != start_tri_ind);
+
+        auto v_current = v_right;
+        auto prev_tri_ind = tri_ind;
+        tri_ind = tri.neighbours[next(index_in_tri)];
+
+        auto opp_vertex = v_right;
+        auto prev_opp_vertex = opp_vertex;
+
+        while (v_current != vj)
+        {
+            auto &tri = m_triangles.at(tri_ind);
+            index_in_tri = indexOf(v_current, tri);
+            opp_vertex = tri.verts[next(index_in_tri)];
+
+            if (liesBetween(v_current, vi, vj) && liesBetween(opp_vertex, vi, vj) && tri.is_constrained[index_in_tri])
+            {
+                overlapps.push_back({v_current, opp_vertex});
+            }
+
+            //!
+            if (orient(vi, vj, opp_vertex) > 0)
+            {
+                v_current = tri.verts[next(index_in_tri)];
+                tri_ind = tri.neighbours[next(index_in_tri)];
+                prev_touched = false;
+            }
+            else if (strictly_less(orient(vi, vj, opp_vertex), 0))
+            {
+                tri_ind = tri.neighbours[index_in_tri];
+            }
+            else
+            {
+                tri_ind = tri.neighbours[next(index_in_tri)];
+                v_current = tri.verts[next(index_in_tri)];
+            }
+        }
+        return overlapps;
+    }
+
+    template <class Vertex>
+    std::vector<EdgeVInd> Triangulation<Vertex>::findOverlappingConstraints2(const Vertex &vi, const Vertex &vj)
+    {
+
+        //! walk from tri_ind_start to  tri_ind_end while looking for collinear constrained edges
+        const auto start_tri_ind = findTriangle(vi, false);
+        const auto start_tri = m_triangles[start_tri_ind];
+        const auto end_tri_ind = findTriangle(vj, true);
+        const auto end_tri = m_triangles[end_tri_ind];
+
+        auto tri_ind = start_tri_ind;
+        auto tri = m_triangles[tri_ind];
+        auto index_in_tri = indexOf(vi, tri);
+
+        auto v_left = tri.verts[prev(index_in_tri)];
+        auto v_right = tri.verts[next(index_in_tri)];
+
+        std::vector<EdgeVInd> overlapps;
+
+        bool prev_touched = false;
+
+        // check if the vj is already connected to vi
+        do
+        {
+            if (liesBetween(v_right, vi, vj))
+            {
+                // if (tri.is_constrained[index_in_tri])
+                {
+                    // overlapps.push_back({vi, v_right});
+                    auto a = indexOf(vi, tri);
+                    auto b = indexOf(v_right, tri);
+                    auto a_ind = m_tri_ind2vert_inds.at(tri_ind)[a];
+                    auto b_ind = m_tri_ind2vert_inds.at(tri_ind)[b];
+
+                    overlapps.push_back({a_ind, b_ind});
+                }
+                break;
+            }
+            if (segmentsIntersect(v_left, v_right, vi, vj))
+            {
+                tri_ind = triangleOppositeOfEdge(tri, {v_left, v_right});
+                break;
+            }
+            tri_ind = tri.neighbours[index_in_tri];
+            tri = m_triangles[tri_ind];
+            index_in_tri = indexOf(vi, tri);
+            v_left = v_right;
+            v_right = tri.verts[next(index_in_tri)];
+        } while (tri_ind != start_tri_ind);
+
+        auto v_current = v_right;
+        auto prev_tri_ind = tri_ind;
+        tri_ind = tri.neighbours[next(index_in_tri)];
+
+        auto opp_vertex = v_right;
+        auto prev_opp_vertex = opp_vertex;
+
+        while (v_current != vj)
+        {
+            auto &tri = m_triangles.at(tri_ind);
+            index_in_tri = indexOf(v_current, tri);
+            opp_vertex = tri.verts[next(index_in_tri)];
+
+            if (liesBetween(v_current, vi, vj) && liesBetween(opp_vertex, vi, vj)) // && tri.is_constrained[index_in_tri])
+            {                                                                      //! opposite vertex touches the inserted constraints
+                auto a = indexOf(v_current, tri);
+                auto b = indexOf(opp_vertex, tri);
+                auto a_ind = m_tri_ind2vert_inds.at(tri_ind)[a];
+                auto b_ind = m_tri_ind2vert_inds.at(tri_ind)[b];
+                if (dot(vj - vi, opp_vertex - v_current) > 0)
+                {
+                    overlapps.push_back({a_ind, b_ind});
+                }
+                else
+                {
+                    overlapps.push_back({b_ind, a_ind});
+                }
+            }
+
+            //!
+            if (orient(vi, vj, opp_vertex) > 0)
+            {
+                v_current = tri.verts[next(index_in_tri)];
+                tri_ind = tri.neighbours[next(index_in_tri)];
+                prev_touched = false;
+            }
+            else if (strictly_less(orient(vi, vj, opp_vertex), 0))
+            {
+                tri_ind = tri.neighbours[index_in_tri];
+            }
+            else
+            {
+                tri_ind = tri.neighbours[next(index_in_tri)];
+                v_current = tri.verts[next(index_in_tri)];
+            }
+        }
+        return overlapps;
+    }
+
+    // template <class Vertex>
+    // void Triangulation<Vertex>::findIntersectingEdges(const EdgeVInd &e, std::deque<EdgeI<Vertex>> &intersected_edges,
+    //                                                   std::deque<TriInd> &intersected_tri_inds)
+    // {
+    //     const auto vi_ind = e.from;
+    //     const auto vj_ind = e.to;
+    //     if (vi_ind == vj_ind)
+    //     {
+    //         return;
+    //     }
+    //     const auto vi = m_vertices[vi_ind];
+    //     const auto vj = m_vertices[vj_ind];
+
+    //     const auto start_tri_ind = findTriangle(vi, false);
+    //     const auto start_tri = m_triangles[start_tri_ind];
+    //     const auto end_tri_ind = findTriangle(vj, true);
+    //     const auto end_tri = m_triangles[end_tri_ind];
+
+    //     EdgeI e_inserted(vi, vj);
+
+    //     auto tri_ind = start_tri_ind;
+    //     auto tri = m_triangles[tri_ind];
+    //     auto index_in_tri = indexOf(vi, tri);
+    //     EdgeI e_next = {tri.verts[prev(index_in_tri)], tri.verts[next(index_in_tri)]};
+    //     if (index_in_tri == -1)
+    //     {
+    //         findTriangle(vi, false);
+    //     }
+    //     bool second_round = false;
+    //     //! find first direction of walk by looking at triangles that contain vi;
+    //     while (!edgesIntersect(e_next, e_inserted))
+    //     {
+    //         tri_ind = tri.neighbours[index_in_tri];
+    //         tri = m_triangles[tri_ind];
+    //         index_in_tri = indexOf(vi, tri);
+
+    //         e_next = {tri.verts[prev(index_in_tri)], tri.verts[next(index_in_tri)]};
+
+    //         if (tri_ind == start_tri_ind)
+    //         {
+    //             if (second_round) //! we are walking in circles so
+    //                 return;
+    //             second_round = true;
+    //         }
+
+    //         if (e_next.from == vj)
+    //         {
+    //             m_triangles[tri_ind].is_constrained[prev(index_in_tri)] = true;
+    //             const auto tri_ind_opposite = triangleOppositeOfEdge(tri, e_inserted);
+    //             const auto ind_in_opposite_tri = indexOf(vi, m_triangles[tri_ind_opposite]);
+    //             m_triangles[tri_ind_opposite].is_constrained[ind_in_opposite_tri] = true;
+    //             return; //! the end vertex of the constraint is already connected to start vertex;
+    //         }
+    //         else if (e_next.to() == vj)
+    //         {
+    //             m_triangles[tri_ind].is_constrained[index_in_tri] = true;
+    //             const auto tri_ind_opposite = triangleOppositeOfEdge(tri, e_inserted);
+    //             const auto ind_in_opposite_tri = indexOf(vj, m_triangles[tri_ind_opposite]);
+    //             m_triangles[tri_ind_opposite].is_constrained[ind_in_opposite_tri] = true;
+    //             return;
+    //         }
+    //     }
+    //     intersected_edges.push_back(e_next);
+    //     intersected_tri_inds.push_back({tri_ind});
+    //     auto v_current = tri.verts[(index_in_tri + 1) % 3];
+    //     tri_ind = tri.neighbours[(index_in_tri + 1) % 3];
+    //     EdgeI<Vertex> e_next1;
+    //     EdgeI<Vertex> e_next2;
+
+    //     //! walk in the found direction to the triangle containing end_ind;
+    //     while (tri_ind != end_tri_ind)
+    //     {
+    //         tri = m_triangles[tri_ind];
+    //         index_in_tri = indexOf(v_current, tri);
+    //         assert(index_in_tri != -1); //! we expect v_current to always exist in tri
+
+    //         e_next1 = {tri.verts[(index_in_tri) % 3], tri.verts[(index_in_tri + 1) % 3]};
+    //         e_next2 = {tri.verts[(index_in_tri + 1) % 3], tri.verts[(index_in_tri + 2) % 3]};
+    //         if (e_next1.from == vj or e_next2.to() == vj or e_next1.to() == vj)
+    //         {
+    //             break; //! we found end_v_ind;
+    //         }
+    //         intersected_tri_inds.push_back(tri_ind);
+
+    //         if (edgesIntersect(e_next1, e_inserted))
+    //         {
+    //             tri_ind = tri.neighbours[index_in_tri];
+    //             intersected_edges.push_back(e_next1);
+    //         }
+    //         else if (edgesIntersect(e_next2, e_inserted))
+    //         {
+    //             intersected_edges.push_back(e_next2);
+    //             tri_ind = tri.neighbours[(index_in_tri + 1) % 3];
+    //             v_current = tri.verts[(index_in_tri + 1) % 3];
+    //         }
+    //         else
+    //         {
+    //             break;
+    //         }
+    //     }
+    //     //    intersected_tri_inds.push_back(tri_ind); //! there is one more triangle compared to intersected edges
+    // }
 
     //! \brief finds existing edges and their corresponding triangles that would intersect with edge \p e
     //! \brief writes the edges into \p intersected_edges and triangles into \p intersected_tri_inds
     //! \param e edge containing vertex indices
     //! \param intersected_edges here the intersected edges are written;
     //! \param intersected_tri_inds here the tri inds corresponding to \p intersected_edges are written
-    template <class TriangleT>
-    void Triangulation<TriangleT>::findIntersectingEdges(const EdgeVInd &e, std::deque<EdgeI> &intersected_edges,
-                                                         std::deque<TriInd> &intersected_tri_inds)
+    template <class Vertex>
+    void Triangulation<Vertex>::findIntersectingEdges(const EdgeVInd &e, std::deque<EdgeI<Vertex>> &intersected_edges,
+                                                      std::deque<TriInd> &intersected_tri_inds)
     {
         const auto vi_ind = e.from;
         const auto vj_ind = e.to;
@@ -1251,42 +1773,19 @@ namespace cdt
         const auto end_tri_ind = findTriangle(vj, true);
         const auto end_tri = m_triangles[end_tri_ind];
 
-        EdgeI e_inserted(vi, vj);
+        EdgeI<Vertex> e_inserted(vi, vj);
 
         auto tri_ind = start_tri_ind;
         auto tri = m_triangles[tri_ind];
         auto index_in_tri = indexOf(vi, tri);
-        EdgeI e_next = {tri.verts[prev(index_in_tri)], tri.verts[next(index_in_tri)]};
-        if (index_in_tri == -1)
+
+        auto v_left = tri.verts[prev(index_in_tri)];
+        auto v_right = tri.verts[next(index_in_tri)];
+
+        // check if the vj is already connected to vi
+        do
         {
-            findTriangle(vi, false);
-        }
-        bool second_round = false;
-        //! find first direction of walk by looking at triangles that contain vi;
-        while (!edgesIntersect(e_next, e_inserted))
-        {
-            tri_ind = tri.neighbours[index_in_tri];
-            tri = m_triangles[tri_ind];
-            index_in_tri = indexOf(vi, tri);
-
-            e_next = {tri.verts[prev(index_in_tri)], tri.verts[next(index_in_tri)]};
-
-            if (tri_ind == start_tri_ind)
-            {
-                if (second_round) //! we are walking in circles so
-                    return;
-                second_round = true;
-            }
-
-            if (e_next.from == vj)
-            {
-                m_triangles[tri_ind].is_constrained[prev(index_in_tri)] = true;
-                const auto tri_ind_opposite = triangleOppositeOfEdge(tri, e_inserted);
-                const auto ind_in_opposite_tri = indexOf(vi, m_triangles[tri_ind_opposite]);
-                m_triangles[tri_ind_opposite].is_constrained[ind_in_opposite_tri] = true;
-                return; //! the end vertex of the constraint is already connected to start vertex;
-            }
-            else if (e_next.to() == vj)
+            if (v_right == vj)
             {
                 m_triangles[tri_ind].is_constrained[index_in_tri] = true;
                 const auto tri_ind_opposite = triangleOppositeOfEdge(tri, e_inserted);
@@ -1294,13 +1793,35 @@ namespace cdt
                 m_triangles[tri_ind_opposite].is_constrained[ind_in_opposite_tri] = true;
                 return;
             }
+            tri_ind = tri.neighbours[index_in_tri];
+            tri = m_triangles[tri_ind];
+            index_in_tri = indexOf(vi, tri);
+            v_right = tri.verts[next(index_in_tri)];
+        } while (tri_ind != start_tri_ind);
+
+        tri_ind = start_tri_ind;
+        tri = m_triangles[tri_ind];
+        index_in_tri = indexOf(vi, tri);
+        v_left = tri.verts[prev(index_in_tri)];
+        v_right = tri.verts[next(index_in_tri)];
+        //! find first direction of walk by looking at triangles that contain vi;
+        while (!segmentsIntersectOrTouch(v_left, v_right, vi, vj))
+        {
+            tri_ind = tri.neighbours[index_in_tri];
+            tri = m_triangles[tri_ind];
+            index_in_tri = indexOf(vi, tri);
+
+            v_left = v_right;
+            v_right = tri.verts[next(index_in_tri)];
         }
-        intersected_edges.push_back(e_next);
+
+        intersected_edges.push_back({v_left, v_right});
         intersected_tri_inds.push_back({tri_ind});
-        auto v_current = tri.verts[(index_in_tri + 1) % 3];
-        tri_ind = tri.neighbours[(index_in_tri + 1) % 3];
-        EdgeI e_next1;
-        EdgeI e_next2;
+
+        auto v_current = tri.verts[next(index_in_tri)];
+        tri_ind = tri.neighbours[next(index_in_tri)];
+        EdgeI<Vertex> e_next1;
+        EdgeI<Vertex> e_next2;
 
         //! walk in the found direction to the triangle containing end_ind;
         while (tri_ind != end_tri_ind)
@@ -1309,9 +1830,9 @@ namespace cdt
             index_in_tri = indexOf(v_current, tri);
             assert(index_in_tri != -1); //! we expect v_current to always exist in tri
 
-            e_next1 = {tri.verts[(index_in_tri) % 3], tri.verts[(index_in_tri + 1) % 3]};
-            e_next2 = {tri.verts[(index_in_tri + 1) % 3], tri.verts[(index_in_tri + 2) % 3]};
-            if (e_next1.from == vj or e_next2.to() == vj or e_next1.to() == vj)
+            e_next1 = {v_current, tri.verts[next(index_in_tri)]};
+            e_next2 = {tri.verts[next(index_in_tri)], tri.verts[prev(index_in_tri)]};
+            if (e_next1.from == vj || e_next2.to() == vj || e_next1.to() == vj)
             {
                 break; //! we found end_v_ind;
             }
@@ -1319,33 +1840,32 @@ namespace cdt
 
             if (edgesIntersect(e_next1, e_inserted))
             {
-                tri_ind = tri.neighbours[index_in_tri];
                 intersected_edges.push_back(e_next1);
+                tri_ind = tri.neighbours[index_in_tri];
             }
             else if (edgesIntersect(e_next2, e_inserted))
             {
                 intersected_edges.push_back(e_next2);
-                tri_ind = tri.neighbours[(index_in_tri + 1) % 3];
-                v_current = tri.verts[(index_in_tri + 1) % 3];
+                tri_ind = tri.neighbours[next(index_in_tri)];
+                v_current = tri.verts[next(index_in_tri)];
             }
             else
             {
                 break;
             }
         }
-        //    intersected_tri_inds.push_back(tri_ind); //! there is one more triangle compared to intersected edges
     }
 
-    template <class TriangleT>
-    bool Triangulation<TriangleT>::hasGoodOrientation(const Triangle &tri) const
+    template <class Vertex>
+    bool Triangulation<Vertex>::hasGoodOrientation(const Triangle<Vertex> &tri) const
     {
         return isCounterClockwise(tri.verts[2], tri.verts[1], tri.verts[0]) &&
                isCounterClockwise(tri.verts[0], tri.verts[2], tri.verts[1]) &&
                isCounterClockwise(tri.verts[1], tri.verts[0], tri.verts[2]);
     }
 
-    template <class TriangleT>
-    bool Triangulation<TriangleT>::isCounterClockwise(const Vertex &v_query, const Vertex &v1, const Vertex &v2) const
+    template <class Vertex>
+    bool Triangulation<Vertex>::isCounterClockwise(const Vertex &v_query, const Vertex &v1, const Vertex &v2) const
     {
         // Vertex v21_norm = {-v2.y + v1.y, v2.x - v1.x};
         // dot(v_query - v1, v21_norm) >= 0;
@@ -1355,8 +1875,8 @@ namespace cdt
     //! \param v    vertex
     //! \param tri  triangle
     //! \returns index in triangle tri corresponding to vertex \p v
-    template <class TriangleT>
-    int Triangulation<TriangleT>::indexOf(const Vertex &v, const Triangle &tri) const
+    template <class Vertex>
+    int Triangulation<Vertex>::indexOf(const Vertex &v, const Triangle<Vertex> &tri) const
     {
         if (tri.verts[0] == v)
         {
@@ -1379,8 +1899,8 @@ namespace cdt
     //! \param v2
     //! \param v3
     //! \returns true if quadrilateral formed by four vertices is Delaunay
-    template <class TriangleT>
-    bool Triangulation<TriangleT>::needSwap(const Vertex &vp, const Vertex &v1, const Vertex &v2, const Vertex &v3) const
+    template <class Vertex>
+    bool Triangulation<Vertex>::needSwap(const Vertex &vp, const Vertex &v1, const Vertex &v2, const Vertex &v3) const
     {
 
         auto v13 = cdt::Vector2f(v1 - v3);
@@ -1410,8 +1930,8 @@ namespace cdt
         return false;
     }
 
-    template <class TriangleT>
-    void Triangulation<TriangleT>::dumpToFile(const std::string filename) const
+    template <class Vertex>
+    void Triangulation<Vertex>::dumpToFile(const std::string filename) const
     {
 
         std::ofstream file(filename);
@@ -1434,8 +1954,8 @@ namespace cdt
             //        "say some warning message or something";
         }
     }
-    template <class TriangleT>
-    long long Triangulation<TriangleT>::det(const Vertex &v1, const Vertex &v2, const Vertex &v3) const
+    template <class Vertex>
+    long long Triangulation<Vertex>::det(const Vertex &v1, const Vertex &v2, const Vertex &v3) const
     {
         long long a = v1.x * v2.y + v2.x * v3.y + v3.x * v1.y;
         long long b = v1.y * v2.x + v2.y * v3.x + v3.y * v1.x;
@@ -1443,8 +1963,8 @@ namespace cdt
     }
 
     //! \brief checks if there are no degenerate triangles (whose points are colinear)
-    template <class TriangleT>
-    bool Triangulation<TriangleT>::allTrianglesValid() const
+    template <class Vertex>
+    bool Triangulation<Vertex>::allTrianglesValid() const
     {
         for (auto &tri : m_triangles)
         {
@@ -1456,8 +1976,8 @@ namespace cdt
         return true;
     }
 
-    template <class TriangleT>
-    bool Triangulation<TriangleT>::isDelaunay(const Triangle &tri) const
+    template <class Vertex>
+    bool Triangulation<Vertex>::isDelaunay(const Triangle<Vertex> &tri) const
     {
         for (int i = 0; i < 3; ++i)
         {
@@ -1475,8 +1995,8 @@ namespace cdt
         return true;
     }
 
-    template <class TriangleT>
-    bool Triangulation<TriangleT>::allAreDelaunay() const
+    template <class Vertex>
+    bool Triangulation<Vertex>::allAreDelaunay() const
     {
         for (const auto &tri : m_triangles)
         {
@@ -1488,6 +2008,6 @@ namespace cdt
         return true;
     }
 
-    template class Triangulation<Triangle>;
+    template class Triangulation<cdt::Vector2i>;
 
 } // namespace cdt
