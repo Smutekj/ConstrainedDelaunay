@@ -6,158 +6,100 @@
 namespace cdt
 {
 
-    struct Vector2i
+    template <class T>
+    struct Vector2
     {
-        int x;
-        int y;
+        T x;
+        T y;
 
-        Vector2i() = default;
-        Vector2i(int x, int y) : x(x), y(y) {}
+        Vector2() = default;
+        template <class T1, class T2>
+        Vector2(T1 x, T2 y)
+            : x(x), y(y) {}
 
-        template <class VecType>
-        Vector2i(const VecType &v) : x(v.x), y(v.y){};
-        // Vector2i(const struct Vector2f& v) : x(v.x), y(v.y) {}
+        template <class T1>
+        Vector2(const struct Vector2<T1> &v) : x(v.x), y(v.y) {}
 
-        bool operator==(const Vector2i &v) const
-        {
-            return v.x == x && v.y == y;
-        }
-
-        Vector2i operator-(const Vector2i &v) const
-        {
-            return {x - v.x, y - v.y};
-        }
-
-        Vector2i operator+(const Vector2i &v) const
-        {
-            return {x + v.x, y + v.y};
-        }
-        Vector2i operator*(int i) const
-        {
-            return {x * i, y * i};
-        }
-
-        Vector2i operator/(int i)
-        {
-            return {x / i, y / i};
-        }
-        void operator*=(int i)
-        {
-            x *= i;
-            y *= i;
-        }
-    };
-
-    Vector2i inline operator*(int i, const Vector2i &v)
-    {
-        return v * i;
-    }
-
-    struct Vector2is
-    {
-        unsigned short x;
-        unsigned short y;
-
-        Vector2is() = default;
-        Vector2is(unsigned short x, unsigned short y) : x(x), y(y) {}
-
-        template <class VecType>
-        Vector2is(const VecType &v) : x(v.x), y(v.y){};
-        // Vector2i(const struct Vector2f& v) : x(v.x), y(v.y) {}
-
-        bool operator==(const Vector2is &v) const
-        {
-            return v.x == x && v.y == y;
-        }
-
-        Vector2i operator-(const Vector2is &v) const
-        {
-            return {x - v.x, y - v.y};
-        }
-
-        Vector2i operator+(const Vector2is &v) const
-        {
-            return {x + v.x, y + v.y};
-        }
-        Vector2i operator*(unsigned short i) const
-        {
-            return {x * i, y * i};
-        }
-
-        Vector2i operator/(unsigned short i)
-        {
-            return {x / i, y / i};
-        }
-        void operator*=(unsigned short i)
-        {
-            x *= i;
-            y *= i;
-        }
-    };
-
-    Vector2is inline operator*(unsigned short i, const Vector2is &v)
-    {
-        return v * i;
-    }
-
-    struct Vector2f
-    {
-        float x;
-        float y;
-
-        Vector2f() = default;
-        Vector2f(float x, float y) : x(x), y(y) {}
-        Vector2f(const Vector2f &r) : x(r.x), y(r.y) {}
-
-        Vector2f(const struct Vector2i &v) : x(v.x), y(v.y) {}
-
-        Vector2f operator+(const Vector2f &v) const
+        Vector2 operator+(const Vector2 &v) const
         {
             return {x + v.x, y + v.y};
         }
 
-        Vector2f operator/(float i) const
+        Vector2 operator/(float i) const
         {
             return {x / i, y / i};
         }
-        Vector2f operator*(float i) const
+        Vector2 operator*(float i) const
         {
             return {x * i, y * i};
         }
-        void operator+=(const cdt::Vector2f& v)
+
+        template <class T1>
+        void operator+=(const cdt::Vector2<T1> &v)
         {
             x += v.x;
             y += v.y;
         }
 
-        void operator/=(float i)
+        template <class T1>
+        void operator/=(T1 i)
         {
             x /= i;
             y /= i;
         }
-        void operator*=(float i)
+
+        template <class T1>
+        void operator*=(T1 i)
         {
             x *= i;
             y *= i;
         }
 
         template <class Scalar>
-        Vector2f operator*(Scalar i) const
+        Vector2 operator*(Scalar i) const
         {
             return {x * i, y * i};
         }
 
-        Vector2f operator-(const Vector2f &v) const
+        template <class T1>
+        Vector2 operator-(const Vector2<T1> &v) const
         {
             return {x - v.x, y - v.y};
         }
+
+        // bool operator==(const Vector2<T>& v) const;
+
     };
 
-    template <class Scalar>
-    Vector2f inline operator*(Scalar i, const Vector2f &v)
+    bool inline approx_equal(float a, float b, float epsilon = std::numeric_limits<float>::epsilon())
+    {
+        return std::abs(a - b) <= 1000. * std::max(std::abs(a), std::abs(b)) * epsilon;
+    }
+    bool inline approx_equal_zero(float a, float epsilon = std::numeric_limits<float>::epsilon())
+    {
+        return std::abs(a) <= 1000. * epsilon;
+    }
+    bool inline strictly_less(float a, float b, float epsilon = std::numeric_limits<float>::epsilon())
+    {
+        return (b - a) > std::max(std::abs(a), std::abs(b)) * 10000. * epsilon;
+    }
+
+    template <typename T>
+    bool operator==(const Vector2<T>& v1, const Vector2<T> &v2)
+    {
+        return v1.x == v2.x && v1.y == v2.y;
+    }
+
+    bool operator==(const Vector2<float>& v1, const Vector2<float> &v2) = delete;
+
+    template <class T, class Scalar>
+    Vector2<T> inline operator*(Scalar i, const Vector2<T> &v)
     {
         return v * i;
     }
+
+    using Vector2f = Vector2<float>;
+    using Vector2i = Vector2<int>;
 
     template <typename T>
     inline float dot(const T &a, const T &b) { return a.x * b.x + a.y * b.y; }
@@ -187,19 +129,6 @@ namespace cdt
     float inline orient2(const VecType &a, const VecType &b, const VecType &c)
     {
         return -cross(b - a, c - a);
-    }
-
-    inline bool approx_equal(float a, float b, float epsilon = std::numeric_limits<float>::epsilon())
-    {
-        return std::abs(a - b) <= 1000. * std::max(std::abs(a), std::abs(b)) * epsilon;
-    }
-    inline bool approx_equal_zero(float a, float epsilon = std::numeric_limits<float>::epsilon())
-    {
-        return std::abs(a) <= 1000. * epsilon;
-    }
-    bool inline strictly_less(float a, float b, float epsilon = std::numeric_limits<float>::epsilon())
-    {
-        return (b - a) > std::max(std::abs(a), std::abs(b)) * 10000. * epsilon;
     }
 
     constexpr float TOLERANCE = 0.0001f;
@@ -271,3 +200,14 @@ namespace cdt
 }
 
 inline cdt::Vector2f asFloat(const cdt::Vector2i &r) { return static_cast<cdt::Vector2f>(r); }
+
+#include <type_traits>
+
+namespace std
+{
+    template <>
+    struct common_type<cdt::Vector2i, cdt::Vector2f>
+    {
+        using type = cdt::Vector2f;
+    };
+}
