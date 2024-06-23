@@ -4,6 +4,10 @@
 
 #include <unordered_map>
 
+
+using Vertex = cdt::Vector2i;
+using Edge = cdt::EdgeI<Vertex>;
+
 class MapGrid : public cdt::Grid
 {
 
@@ -27,7 +31,7 @@ public:
 
     void changeTiles(Tile new_tile, cdt::Vector2i lower_left, cdt::Vector2i size);
 
-    std::vector<cdt::EdgeI> extractEdges() const;
+    std::vector<Edge> extractEdges() const;
 
 private:
     bool isAtBoundary(int ix, int iy) const;
@@ -66,7 +70,7 @@ public:
 
     void changeTiles(Tile new_tile, cdt::Vector2i lower_left, cdt::Vector2i size);
 
-    std::vector<cdt::EdgeI> extractEdges() const;
+    std::vector<Edge> extractEdges() const;
     
     void transformCorners();
     void extractBoundaries();
