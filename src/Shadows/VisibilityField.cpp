@@ -1,6 +1,6 @@
 #include "VisibilityField.h"
 
-VisionField::VisionField(cdt::Triangulation<cdt::Triangle> &cdt) : m_cdt(cdt) {}
+VisionField::VisionField(cdt::Triangulation<cdt::Vector2i> &cdt) : m_cdt(cdt) {}
 
 bool VisionField::isVisible(cdt::Vector2f query) const
 {

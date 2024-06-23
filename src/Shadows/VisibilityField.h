@@ -26,7 +26,7 @@ class VisionField
     };
 
 public:
-    VisionField(cdt::Triangulation<cdt::Triangle> &cdt);
+    VisionField(cdt::Triangulation<cdt::Vector2i> &cdt);
 
     bool            isVisible(cdt::Vector2f query) const;
 
@@ -41,7 +41,7 @@ private:
     float m_max_angle = +60;
 
     std::vector<VisionCone> m_vision;
-    cdt::Triangulation<cdt::Triangle> &m_cdt;
+    cdt::Triangulation<cdt::Vector2i> &m_cdt;
 };
 
 
