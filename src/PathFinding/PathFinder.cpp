@@ -6,10 +6,10 @@
 #include <fstream>
 #include <iostream>
 
-PathFinder::PathFinder(Triangulation<Triangle> &cdt)
-    : m_cdt(&cdt)
+PathFinder::PathFinder(Triangulation<cdt::Vector2i> &cdt)
+    : m_cdt(cdt)
 {
-    m_rtg = std::make_unique<ReducedTriangulationGraph>();
+    // m_rtg = std::make_unique<ReducedTriangulationGraph>();
 }
 
 //! \brief creates everything from p_triangulation_
@@ -17,17 +17,17 @@ PathFinder::PathFinder(Triangulation<Triangle> &cdt)
 void PathFinder::update()
 {
 
-    const auto n_triangles = m_cdt->m_triangles.size();
+    const auto n_triangles = m_cdt.m_triangles.size();
 
     triangle2tri_widths_.resize(n_triangles);
     for (int tri_ind = 0; tri_ind < n_triangles; ++tri_ind)
     {
-        triangle2tri_widths_[tri_ind] = TriangleWidth(m_cdt->m_triangles[tri_ind], *m_cdt);
+        triangle2tri_widths_[tri_ind] = TriangleWidth(m_cdt.m_triangles[tri_ind]);
     }
     m_g_values.resize(n_triangles);
     m_back_pointers.resize(n_triangles);
 
-    m_cdt->updateCellGrid();
+    m_cdt.updateCellGrid();
 }
 
 void dumpFunnelToFile(const Funnel &funnel, float radius, std::string filename)
@@ -49,24 +49,6 @@ void dumpPathToFile(const std::deque<cdt::Vector2f> &path, float radius, std::st
     {
         file << r.x << " " << r.y << '\n';
     }
-    file.close();
-}
-
-void dumpFunnelToFile2(const std::vector<Vertex> &r_lefts, const std::vector<Vertex> &r_rights, std::string filename)
-{
-    std::ofstream file(filename);
-
-    for (auto r_left : r_lefts)
-    {
-        file << r_left.x << " " << r_left.y << '\n';
-    }
-    file << "\n";
-
-    for (auto r_right : r_rights)
-    {
-        file << r_right.x << " " << r_right.y << '\n';
-    }
-
     file.close();
 }
 
@@ -93,10 +75,10 @@ PathFinder::PathData PathFinder::doPathFinding(const cdt::Vector2f r_start, cons
 void PathFinder::findSubOptimalPathCenters(cdt::Vector2f r_start, cdt::Vector2f r_end, float radius, Funnel &funnel)
 {
 
-    const auto &triangles = m_cdt->m_triangles;
-    const auto &vertices = m_cdt->m_vertices;
-    const auto start = m_cdt->findTriangle(r_start, false);
-    const auto end = m_cdt->findTriangle(r_end, false);
+    const auto &triangles = m_cdt.m_triangles;
+    const auto &vertices = m_cdt.m_vertices;
+    const auto start = m_cdt.findTriangle(r_start, false);
+    const auto end = m_cdt.findTriangle(r_end, false);
 
     if (start == end or start == -1 or end == -1)
     {
@@ -193,8 +175,8 @@ std::pair<TriInd, int> PathFinder::closestPointOnNavigableComponent(const cdt::V
                                                                     const int end_component,
                                                                     const int navigable_component) const
 {
-    const auto &triangles = m_cdt->m_triangles;
-    const auto &vertices = m_cdt->m_vertices;
+    const auto &triangles = m_cdt.m_triangles;
+    const auto &vertices = m_cdt.m_vertices;
     auto current_tri_ind = start_tri_ind;
     std::queue<TriInd> to_visit({current_tri_ind});
 
@@ -250,7 +232,7 @@ float calcWidth(cdt::Vector2f pos, Edgef segment)
     return norm_dist;
 }
 
-PathFinder::TriangleWidth::TriangleWidth(Triangle &tri, const Triangulation<Triangle> &cdt)
+PathFinder::TriangleWidth::TriangleWidth(Triangle<Vertex> &tri)
 {
 
     int n_constraints = 0;
@@ -374,8 +356,8 @@ PathFinder::PathData PathFinder::pathFromFunnel(const cdt::Vector2f r_start, con
     path_and_portals.path = {r_start};
     path_and_portals.portals = {Edgef()};
 
-    const auto &triangles = m_cdt->m_triangles;
-    const auto &vertices = m_cdt->m_vertices;
+    const auto &triangles = m_cdt.m_triangles;
+    const auto &vertices = m_cdt.m_vertices;
 
     cdt::Vector2f right;
     cdt::Vector2f left;

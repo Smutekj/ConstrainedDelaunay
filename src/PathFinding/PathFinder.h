@@ -7,9 +7,22 @@
 #include <unordered_set>
 
 #include "../Triangulation.h"
-#include "ReducedTriangulationGraph.h"
+// #include "ReducedTriangulationGraph.h"
+
+
+struct Portal {
+    cdt::Vector2f first; //! left point of portal when looking through the portal
+    cdt::Vector2f second;
+
+    Portal(cdt::Vector2f a, cdt::Vector2f b) : first(a), second(b) {}
+};
+
+//! \note first and last element of portals should be one singular point with left == right
+typedef std::deque<Portal> Funnel;
+
 
 using namespace cdt;
+using Vertex = cdt::Vector2i;
 
 struct Edgef
 {
@@ -70,7 +83,7 @@ private:
     struct TriangleWidth
     {
         float widths[3];
-        TriangleWidth(Triangle &tri, const Triangulation<Triangle> &cdt);
+        TriangleWidth(Triangle<Vertex> &tri);
         TriangleWidth()
         {
             widths[0] = MAXFLOAT;
@@ -88,7 +101,7 @@ public:
     };
 
 public:
-    explicit PathFinder(Triangulation<Triangle> &cdt);
+    explicit PathFinder(Triangulation<Vertex> &cdt);
 
     void update();
 
@@ -114,9 +127,9 @@ public:
 private:
     std::vector<TriInd> m_back_pointers;
     std::vector<float> m_g_values;
-    std::unique_ptr<ReducedTriangulationGraph> m_rtg;
+    // std::unique_ptr<ReducedTriangulationGraph> m_rtg;
 
-    Triangulation<Triangle> * m_cdt; //! underlying triangulation
+    Triangulation<Vertex>& m_cdt; //! underlying triangulation
 
     std::vector<int> component2building_ind_; //! this should probably not be here...
 
